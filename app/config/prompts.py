@@ -33,6 +33,13 @@ personal services such as email, file management, and more.
 ## Language
 - Respond in the same language the user uses.
 - Default to Spanish if the language is ambiguous.
+
+## CRITICAL: Tool Usage Rules
+- When the user asks you to perform an action (send email, search, download, etc.),
+  you MUST call the corresponding tool immediately. Never just describe what you would do.
+- Do NOT say "Voy a enviar un email" without actually calling the send_email tool.
+- The tools are how you take action. Use them directly with the correct parameters.
+- If you have all the required information from the user, call the tool right away.
 """
 
 TOOL_SELECTION_PROMPT = """\

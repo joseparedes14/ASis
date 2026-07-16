@@ -202,45 +202,13 @@ def main() -> None:
         state["messages"].append(HumanMessage(content=user_input))
 
         # Run the graph
+        final_state = None
         try:
             with console.status("[bold cyan]Pensando...", spinner="dots"):
-                # Stream through the graph
-                final_state = None
                 for event in graph_app.stream(state, config=config, stream_mode="values"):
                     final_state = event
-
-                # Check for interrupts (confirmation needed)
-                if final_state and final_state.get("requires_confirmation"):
-                    pending = final_state.get("pending_tool_calls", [])
-                    if pending:
-                        confirmed = ask_confirmation(pending)
-                        final_state["user_confirmed"] = confirmed
-
-                        if confirmed:
-                            # Resume graph with confirmation
-                            for event in graph_app.stream(
-                                {**final_state, "user_confirmed": True},
-                                config=config,
-                                stream_mode="values",
-                            ):
-                                final_state = event
-                        else:
-                            console.print("[dim]❌ Acción cancelada por el usuario[/]")
-
-            # Update conversation state
-            if final_state:
-                state = final_state
-
-                # Display the last AI message
-                for msg in reversed(state.get("messages", [])):
-                    if isinstance(msg, AIMessage) and msg.content:
-                        display_response(msg.content)
-                        break
-
         except GraphInterrupt:
-            # Handle LangGraph interrupts for confirmation
             logger.debug("Graph interrupted for confirmation")
-            continue
         except KeyboardInterrupt:
             console.print("\n[dim]⏹️  Operación cancelada[/]")
             continue
@@ -248,6 +216,45 @@ def main() -> None:
             logger.error("Error during graph execution: %s", e, exc_info=True)
             console.print(f"\n[bold red]❌ Error:[/] {e}")
             console.print("[dim]El agente intentará recuperarse en la próxima interacción.[/]")
+            continue
+
+        # Handle confirmation OUTSIDE the spinner
+        if final_state and final_state.get("requires_confirmation"):
+            pending = final_state.get("pending_tool_calls", [])
+            if pending:
+                confirmed = ask_confirmation(pending)
+                final_state["user_confirmed"] = confirmed
+                
+                # Add resume flag so the graph knows not to process as a fresh turn
+                metadata = final_state.get("metadata", {})
+                final_state["metadata"] = {**metadata, "resume": True}
+
+                if not confirmed:
+                    console.print("[dim]❌ Acción cancelada por el usuario[/]")
+                
+                status_msg = "[bold cyan]Ejecutando..." if confirmed else "[bold cyan]Cancelando..."
+                try:
+                    with console.status(f"{status_msg}", spinner="dots"):
+                        for event in graph_app.stream(
+                            final_state,
+                            config=config,
+                            stream_mode="values",
+                        ):
+                            final_state = event
+                except Exception as e:
+                    logger.error("Error during graph resume: %s", e, exc_info=True)
+                    console.print(f"\n[bold red]❌ Error:[/] {e}")
+                    continue
+
+        # Update conversation state
+        if final_state:
+            state = final_state
+
+            # Display the last AI message
+            for msg in reversed(state.get("messages", [])):
+                if isinstance(msg, AIMessage) and msg.content:
+                    display_response(msg.content)
+                    break
 
 
 if __name__ == "__main__":

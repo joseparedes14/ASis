@@ -16,6 +16,7 @@ from app.agent.nodes import (
     check_confirmation,
     generate_response,
     process_input,
+    route_after_input,
     should_confirm_or_execute,
     should_execute_tools,
     tool_execution,
@@ -138,7 +139,15 @@ def build_graph(settings: Settings) -> StateGraph:
     graph.set_entry_point("process_input")
 
     # Add edges
-    graph.add_edge("process_input", "agent_reasoning")
+    graph.add_conditional_edges(
+        "process_input",
+        route_after_input,
+        {
+            "agent_reasoning": "agent_reasoning",
+            "tool_execution": "tool_execution",
+            "generate_response": "generate_response",
+        },
+    )
 
     # Conditional: after reasoning, check if tools are needed
     graph.add_conditional_edges(

@@ -70,6 +70,7 @@ def _create_ollama(settings: Settings) -> BaseChatModel:
         model=settings.llm_model,
         base_url=settings.ollama_base_url,
         temperature=settings.llm_temperature,
+        num_ctx=4096,
     )
 
 

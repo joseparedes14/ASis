@@ -170,25 +170,14 @@ def send_email(to: str, subject: str, body: str) -> str:
         settings = get_settings()
         service = GmailSMTPService(settings)
 
-        # Run the async send_email in a sync context
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            # If we're already in an async context, create a task
-            import concurrent.futures
-            with concurrent.futures.ThreadPoolExecutor() as pool:
-                result = pool.submit(
-                    lambda: asyncio.run(service.connect())
-                ).result()
-                send_result = pool.submit(
-                    lambda: asyncio.run(service.send_email(to=to, subject=subject, body=body))
-                ).result()
-                pool.submit(lambda: asyncio.run(service.disconnect())).result()
-        else:
-            loop.run_until_complete(service.connect())
-            send_result = loop.run_until_complete(
-                service.send_email(to=to, subject=subject, body=body)
-            )
-            loop.run_until_complete(service.disconnect())
+        async def _send() -> bool:
+            await service.connect()
+            try:
+                return await service.send_email(to=to, subject=subject, body=body)
+            finally:
+                await service.disconnect()
+
+        send_result = asyncio.run(_send())
 
         if send_result:
             return f"Email sent successfully to {to} with subject: '{subject}'"

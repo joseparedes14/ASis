@@ -7,7 +7,7 @@ the current AgentState and return a partial state update dictionary.
 
 from typing import Any
 
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
+from langchain_core.messages import AIMessage, SystemMessage, ToolMessage
 
 from app.agent.state import MAX_ITERATIONS, AgentState
 from app.config.logging_config import get_logger
@@ -21,7 +21,9 @@ def process_input(state: AgentState) -> dict[str, Any]:
     """Process and validate user input.
 
     First node in the graph. Ensures the conversation has a system
-    message and resets per-turn state fields.
+    message and resets per-turn state fields on fresh turns only.
+    On graph resume (after user confirmation), preserves the existing
+    state so tool calls and confirmation flags are not lost.
 
     Args:
         state: Current agent state.
@@ -39,6 +41,13 @@ def process_input(state: AgentState) -> dict[str, Any]:
         messages = [system_msg] + messages
         logger.debug("Added system prompt to conversation")
 
+    metadata = state.get("metadata", {})
+    is_resume = metadata.get("resume", False)
+
+    if is_resume:
+        logger.info("Graph resume detected — preserving existing state")
+        return {"metadata": {**metadata, "resume": False}}
+
     return {
         "messages": messages,
         "pending_tool_calls": [],
@@ -47,6 +56,7 @@ def process_input(state: AgentState) -> dict[str, Any]:
         "user_confirmed": None,
         "error": None,
         "iteration_count": 0,
+        "metadata": {**metadata, "resume": False},
     }
 
 
@@ -82,7 +92,7 @@ def agent_reasoning(state: AgentState, llm_with_tools: Any) -> dict[str, Any]:
 
     try:
         response = llm_with_tools.invoke(state["messages"])
-        logger.debug(
+        logger.info(
             "LLM response — has_tool_calls=%s, content_length=%d",
             bool(response.tool_calls),
             len(response.content) if response.content else 0,
@@ -98,6 +108,11 @@ def agent_reasoning(state: AgentState, llm_with_tools: Any) -> dict[str, Any]:
                 }
                 for tc in response.tool_calls
             ]
+        else:
+            logger.info(
+                "No tool calls — LLM responded with text only: %.200s",
+                response.content or "",
+            )
 
         return {
             "messages": [response],
@@ -241,6 +256,24 @@ def generate_response(state: AgentState) -> dict[str, Any]:
 
 
 # ── Routing Functions ───────────────────────────────────────────────────
+
+
+def route_after_input(state: AgentState) -> str:
+    """Determine next node after input processing.
+
+    If resuming after user confirmation, route based on their decision.
+    Otherwise, proceed to agent reasoning.
+    """
+    user_confirmed = state.get("user_confirmed")
+    if user_confirmed is True:
+        logger.debug("Routing → tool_execution (resume confirmed)")
+        return "tool_execution"
+    elif user_confirmed is False:
+        logger.debug("Routing → generate_response (resume rejected)")
+        return "generate_response"
+    
+    logger.debug("Routing → agent_reasoning (fresh turn)")
+    return "agent_reasoning"
 
 
 def should_execute_tools(state: AgentState) -> str:
