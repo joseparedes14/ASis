@@ -1,11 +1,12 @@
 """
 Email tools for the AI agent.
 
-LangChain-compatible tools for email operations. These are placeholder
-implementations that will be connected to the email service layer
-when the service is fully implemented.
+LangChain-compatible tools for email operations including searching,
+reading, downloading attachments, and sending emails via Gmail.
 """
 
+import asyncio
+from datetime import datetime
 from typing import Optional
 
 from langchain_core.tools import tool
@@ -13,7 +14,9 @@ from pydantic import BaseModel, Field
 
 from app.config.logging_config import get_logger
 from app.config.settings import get_settings
+from app.services.imap_service import ImapEmailService
 from app.services.smtp_service import GmailSMTPService
+from app.services.storage_service import StorageService
 from app.tools.base import ToolRiskLevel, tool_metadata
 
 logger = get_logger(__name__)
@@ -46,6 +49,10 @@ class SearchEmailsInput(BaseModel):
         ge=1,
         le=50,
         description="Maximum number of results to return.",
+    )
+    unread_only: bool = Field(
+        default=False,
+        description="If true, only return unread emails.",
     )
 
 
@@ -82,6 +89,14 @@ class SendEmailInput(BaseModel):
     )
 
 
+class CheckAndDownloadInput(BaseModel):
+    """Input schema for the check_and_download_documents tool."""
+
+    sender_email: str = Field(
+        description="Email address of the sender to check for documents.",
+    )
+
+
 # ── Tool Implementations ───────────────────────────────────────────────
 
 
@@ -92,6 +107,7 @@ def search_emails(
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
     limit: int = 10,
+    unread_only: bool = False,
 ) -> str:
     """Search for emails matching specified criteria.
 
@@ -99,19 +115,67 @@ def search_emails(
     combination of these filters. Returns a summary of matching emails.
     """
     logger.info(
-        "search_emails called — sender=%s, subject=%s, date_from=%s, date_to=%s, limit=%d",
+        "search_emails called — sender=%s, subject=%s, unread_only=%s",
         sender,
         subject,
-        date_from,
-        date_to,
-        limit,
+        unread_only,
     )
-    # TODO: Connect to EmailService when implemented
-    return (
-        "[Email search not yet implemented] "
-        f"Would search for emails with: sender={sender}, subject={subject}, "
-        f"date_from={date_from}, date_to={date_to}, limit={limit}"
-    )
+
+    try:
+        settings = get_settings()
+        service = ImapEmailService(settings)
+
+        async def _search() -> list:
+            await service.connect()
+            try:
+                parsed_from = None
+                if date_from:
+                    parsed_from = datetime.strptime(date_from, "%Y-%m-%d")
+                parsed_to = None
+                if date_to:
+                    parsed_to = datetime.strptime(date_to, "%Y-%m-%d")
+
+                return await service.search_emails(
+                    sender=sender,
+                    subject=subject,
+                    date_from=parsed_from,
+                    date_to=parsed_to,
+                    limit=limit,
+                    unread_only=unread_only,
+                )
+            finally:
+                await service.disconnect()
+
+        emails = asyncio.run(_search())
+
+        if not emails:
+            return "No se encontraron emails con los criterios especificados."
+
+        results = []
+        for i, msg in enumerate(emails, 1):
+            attachments_info = ""
+            if msg.has_attachments:
+                att_names = [a.filename for a in msg.attachments]
+                attachments_info = f" | Adjuntos: {', '.join(att_names)}"
+
+            results.append(
+                f"{i}. [{msg.message_id}] De: {msg.sender}\n"
+                f"   Asunto: {msg.subject}\n"
+                f"   Fecha: {msg.date.strftime('%Y-%m-%d %H:%M')}{attachments_info}"
+            )
+
+        return f"Se encontraron {len(emails)} emails:\n\n" + "\n\n".join(results)
+
+    except FileNotFoundError as e:
+        return (
+            f"Error: {e}\n"
+            "Ejecuta 'python scripts/authorize_gmail.py' primero para autorizar Gmail."
+        )
+    except ConnectionError as e:
+        return f"Error de conexión IMAP: {e}"
+    except Exception as e:
+        logger.error("Error searching emails: %s", e)
+        return f"Error buscando emails: {e}"
 
 
 @tool(args_schema=GetEmailContentInput)
@@ -122,8 +186,54 @@ def get_email_content(message_id: str) -> str:
     metadata of a specific email message.
     """
     logger.info("get_email_content called — message_id=%s", message_id)
-    # TODO: Connect to EmailService when implemented
-    return f"[Email retrieval not yet implemented] Would retrieve email: {message_id}"
+
+    try:
+        settings = get_settings()
+        service = ImapEmailService(settings)
+
+        async def _get():
+            await service.connect()
+            try:
+                return await service.get_email(message_id)
+            finally:
+                await service.disconnect()
+
+        email_msg = asyncio.run(_get())
+
+        if not email_msg:
+            return f"No se encontró el email con ID: {message_id}"
+
+        parts = [
+            f"De: {email_msg.sender}",
+            f"Para: {', '.join(email_msg.recipients)}",
+            f"Asunto: {email_msg.subject}",
+            f"Fecha: {email_msg.date.strftime('%Y-%m-%d %H:%M')}",
+            f"Carpeta: {email_msg.folder}",
+        ]
+
+        if email_msg.has_attachments:
+            att_info = []
+            for att in email_msg.attachments:
+                att_info.append(f"  - {att.filename} ({att.content_type}, {att.size_bytes} bytes)")
+            parts.append("Adjuntos:\n" + "\n".join(att_info))
+
+        parts.append(f"\n--- Cuerpo ---\n{email_msg.body_text}")
+
+        if email_msg.body_html:
+            parts.append(f"\n--- HTML ---\n{email_msg.body_html[:500]}...")
+
+        return "\n".join(parts)
+
+    except FileNotFoundError as e:
+        return (
+            f"Error: {e}\n"
+            "Ejecuta 'python scripts/authorize_gmail.py' primero para autorizar Gmail."
+        )
+    except ConnectionError as e:
+        return f"Error de conexión IMAP: {e}"
+    except Exception as e:
+        logger.error("Error getting email content: %s", e)
+        return f"Error obteniendo contenido del email: {e}"
 
 
 @tool(args_schema=DownloadAttachmentInput)
@@ -138,11 +248,38 @@ def download_attachment(message_id: str, filename: str) -> str:
         message_id,
         filename,
     )
-    # TODO: Connect to EmailService + StorageService when implemented
-    return (
-        f"[Attachment download not yet implemented] "
-        f"Would download '{filename}' from email {message_id}"
-    )
+
+    try:
+        settings = get_settings()
+        service = ImapEmailService(settings)
+        storage = StorageService(settings)
+
+        async def _download():
+            await service.connect()
+            try:
+                email_msg = await service.get_email(message_id)
+                sender = email_msg.sender if email_msg else None
+
+                content = await service.download_attachment(message_id, filename)
+                if content:
+                    path = storage.save_attachment(content, filename, sender=sender)
+                    return f"Archivo descargado: {path}"
+                return f"No se encontró el adjunto '{filename}' en el email {message_id}"
+            finally:
+                await service.disconnect()
+
+        return asyncio.run(_download())
+
+    except FileNotFoundError as e:
+        return (
+            f"Error: {e}\n"
+            "Ejecuta 'python scripts/authorize_gmail.py' primero para autorizar Gmail."
+        )
+    except ConnectionError as e:
+        return f"Error de conexión IMAP: {e}"
+    except Exception as e:
+        logger.error("Error downloading attachment: %s", e)
+        return f"Error descargando adjunto: {e}"
 
 
 @tool(args_schema=SendEmailInput)
@@ -158,8 +295,6 @@ def send_email(to: str, subject: str, body: str) -> str:
         subject: Email subject line.
         body: Complete body content of the email.
     """
-    import asyncio
-
     logger.info(
         "send_email called — to=%s, subject=%s",
         to,
@@ -201,6 +336,76 @@ def send_email(to: str, subject: str, body: str) -> str:
         return f"Error sending email: {e}"
 
 
+@tool(args_schema=CheckAndDownloadInput)
+def check_and_download_documents(sender_email: str) -> str:
+    """Check for the most recent email from a sender and download all attachments.
+
+    Automatically searches INBOX for the latest email from the given sender,
+    downloads all attachments, and saves them to data/attachments/<sender>/.
+    Use this tool to manually trigger a check for documents from a specific sender.
+    """
+    logger.info("check_and_download_documents called — sender_email=%s", sender_email)
+
+    try:
+        settings = get_settings()
+        service = ImapEmailService(settings)
+        storage = StorageService(settings)
+
+        async def _check():
+            await service.connect()
+            try:
+                emails = await service.search_emails(
+                    sender=sender_email, limit=1, unread_only=True
+                )
+
+                if not emails:
+                    return f"No se encontraron emails de {sender_email}."
+
+                email_msg = emails[0]
+
+                if not email_msg.has_attachments:
+                    return (
+                        f"El email más reciente de {sender_email} no tiene adjuntos.\n"
+                        f"Asunto: {email_msg.subject}"
+                    )
+
+                downloaded_files = []
+                for att in email_msg.attachments:
+                    content = await service.download_attachment(
+                        email_msg.message_id, att.filename
+                    )
+                    if content:
+                        path = storage.save_attachment(
+                            content, att.filename, sender=sender_email
+                        )
+                        downloaded_files.append(path.name)
+
+                if downloaded_files:
+                    return (
+                        f"Se descargaron {len(downloaded_files)} archivos de {sender_email}:\n"
+                        f"Asunto: {email_msg.subject}\n"
+                        f"Archivos: {', '.join(downloaded_files)}\n"
+                        f"Ubicación: data/attachments/{sender_email}/"
+                    )
+                return "No se pudieron descargar los adjuntos."
+
+            finally:
+                await service.disconnect()
+
+        return asyncio.run(_check())
+
+    except FileNotFoundError as e:
+        return (
+            f"Error: {e}\n"
+            "Ejecuta 'python scripts/authorize_gmail.py' primero para autorizar Gmail."
+        )
+    except ConnectionError as e:
+        return f"Error de conexión IMAP: {e}"
+    except Exception as e:
+        logger.error("Error checking documents: %s", e)
+        return f"Error al verificar documentos: {e}"
+
+
 # ── Tool List ───────────────────────────────────────────────────────────
 
 # Set metadata
@@ -216,5 +421,16 @@ send_email.metadata = tool_metadata(
     requires_confirmation=True,
     category="email",
 )
+check_and_download_documents.metadata = tool_metadata(
+    risk_level=ToolRiskLevel.MEDIUM,
+    requires_confirmation=False,
+    category="email",
+)
 
-EMAIL_TOOLS = [search_emails, get_email_content, download_attachment, send_email]
+EMAIL_TOOLS = [
+    search_emails,
+    get_email_content,
+    download_attachment,
+    send_email,
+    check_and_download_documents,
+]

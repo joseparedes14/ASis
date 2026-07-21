@@ -7,27 +7,18 @@ refreshed when expired, requiring user authorization only once.
 """
 
 import base64
-import json
 import smtplib
-import webbrowser
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-from pathlib import Path
 from typing import Optional
-from urllib.parse import urlencode, urlparse, parse_qs
 
-from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
 
 from app.config.logging_config import get_logger
 from app.config.settings import Settings
+from app.services.oauth_helper import load_oauth_credentials
 
 logger = get_logger(__name__)
-
-# OAuth2 scopes needed for Gmail SMTP
-# This scope allows sending emails but nothing else
-SCOPES = ["https://mail.google.com/"]
 
 
 class GmailSMTPService:
@@ -68,78 +59,7 @@ class GmailSMTPService:
             FileNotFoundError: If credentials.json doesn't exist.
             ValueError: If authorization fails.
         """
-        token_path = Path(self._settings.email_oauth_token_file)
-        creds = None
-
-        # Try to load existing token
-        if token_path.exists():
-            creds = Credentials.from_authorized_user_file(str(token_path), SCOPES)
-            logger.debug("Loaded existing token from %s", token_path)
-
-        # Refresh if expired
-        if creds and creds.expired and creds.refresh_token:
-            logger.info("Refreshing expired access token...")
-            creds.refresh(Request())
-            self._save_token(creds, token_path)
-            logger.info("Access token refreshed successfully")
-
-        # If no valid credentials, perform authorization flow
-        if not creds or not creds.valid:
-            creds = self._perform_authorization_flow(token_path)
-
-        return creds
-
-    def _perform_authorization_flow(self, token_path: Path) -> Credentials:
-        """Execute the OAuth2 authorization flow.
-
-        This opens the browser for user authorization and exchanges
-        the authorization code for tokens.
-
-        Args:
-            token_path: Where to save the obtained token.
-
-        Returns:
-            Valid OAuth2 credentials.
-
-        Raises:
-            FileNotFoundError: If credentials.json doesn't exist.
-            ValueError: If authorization fails.
-        """
-        credentials_file = Path(self._settings.email_oauth_credentials_file)
-
-        if not credentials_file.exists():
-            raise FileNotFoundError(
-                f"OAuth2 credentials file not found: {credentials_file}\n"
-                "Please download it from Google Cloud Console and place it in the project root."
-            )
-
-        logger.info("Starting OAuth2 authorization flow...")
-        logger.info("A browser window will open for authorization.")
-
-        flow = InstalledAppFlow.from_client_secrets_file(
-            str(credentials_file), SCOPES
-        )
-
-        # Use localhost server for automatic code exchange
-        creds = flow.run_local_server(port=0)
-
-        # Save the token for future use
-        self._save_token(creds, token_path)
-
-        logger.info("Authorization completed successfully. Token saved to %s", token_path)
-        return creds
-
-    def _save_token(self, creds: Credentials, token_path: Path) -> None:
-        """Save OAuth2 token to disk.
-
-        Args:
-            creds: Credentials to save.
-            token_path: Path where to save the token.
-        """
-        token_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(token_path, "w") as f:
-            f.write(creds.to_json())
-        logger.debug("Token saved to %s", token_path)
+        return load_oauth_credentials(self._settings)
 
     def _build_xoauth2_string(self) -> str:
         """Build the XOAUTH2 authentication string for SMTP.

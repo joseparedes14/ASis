@@ -20,6 +20,7 @@ from app.agent.state import create_initial_state
 from app.config.logging_config import get_logger, setup_logging
 from app.config.settings import get_settings
 from app.models.llm import LLMProviderError, check_ollama_connection
+from app.services.email_monitor import EmailMonitor
 
 logger = get_logger(__name__)
 console = Console()
@@ -85,9 +86,13 @@ def print_status(settings) -> None:
     ]
     if ollama_ok is not None:
         status_icon = "✅" if ollama_ok else "❌"
-        status_lines.append(f"[bold]Ollama:[/]         {status_icon} {'Conectado' if ollama_ok else 'No disponible'}")
+        ollama_status = "Conectado" if ollama_ok else "No disponible"
+        status_lines.append(
+            f"[bold]Ollama:[/]         {status_icon} {ollama_status}"
+        )
     status_lines.extend([
-        f"[bold]Confirmación:[/]   {'Activada' if settings.require_confirmation else 'Desactivada'}",
+        f"[bold]Confirmación:[/]   "
+        f"{'Activada' if settings.require_confirmation else 'Desactivada'}",
         f"[bold]Nivel de log:[/]   {settings.log_level}",
         f"[bold]Dir. datos:[/]     {settings.data_dir}",
     ])
@@ -129,6 +134,26 @@ def display_response(content: str) -> None:
         console.print(Panel(Markdown(content), title="🤖 ASis", border_style="green"))
 
 
+def display_notifications(notifications: list) -> None:
+    """Display email download notifications to the user.
+
+    Args:
+        notifications: List of DownloadNotification objects.
+    """
+    for notif in notifications:
+        console.print()
+        console.print(
+            Panel(
+                f"[bold]De:[/] {notif.sender}\n"
+                f"[bold]Asunto:[/] {notif.subject}\n"
+                f"[bold]Archivos:[/] {', '.join(notif.filenames)}\n"
+                f"[bold]Hora:[/] {notif.timestamp.strftime('%H:%M:%S')}",
+                title="📧 Documento descargado",
+                border_style="yellow",
+            )
+        )
+
+
 # ── Main Loop ───────────────────────────────────────────────────────────
 
 
@@ -164,15 +189,30 @@ def main() -> None:
 
     print_help()
 
+    # Start email monitor
+    monitor = EmailMonitor(settings)
+    monitored_senders = settings.get_monitored_senders()
+    if monitored_senders:
+        monitor.start()
+        console.print(
+            f"[dim]📧 Monitor de email activo — vigilando: {', '.join(monitored_senders)}[/]\n"
+        )
+
     # Conversation state
     state = create_initial_state()
     config = {"configurable": {"thread_id": "cli-session-1"}}
 
     # ── Interactive loop ────────────────────────────────────────────
     while True:
+        # Check for email notifications before asking for input
+        notifications = monitor.get_notifications()
+        if notifications:
+            display_notifications(notifications)
+
         try:
             user_input = console.input("\n[bold blue]Tú:[/] ").strip()
         except (EOFError, KeyboardInterrupt):
+            monitor.stop()
             console.print("\n[dim]👋 ¡Hasta luego![/]")
             break
 
@@ -182,6 +222,7 @@ def main() -> None:
         # Handle CLI commands
         command = user_input.lower()
         if command in ("/exit", "/quit"):
+            monitor.stop()
             console.print("[dim]👋 ¡Hasta luego![/]")
             break
         elif command == "/help":
@@ -224,14 +265,14 @@ def main() -> None:
             if pending:
                 confirmed = ask_confirmation(pending)
                 final_state["user_confirmed"] = confirmed
-                
+
                 # Add resume flag so the graph knows not to process as a fresh turn
                 metadata = final_state.get("metadata", {})
                 final_state["metadata"] = {**metadata, "resume": True}
 
                 if not confirmed:
                     console.print("[dim]❌ Acción cancelada por el usuario[/]")
-                
+
                 status_msg = "[bold cyan]Ejecutando..." if confirmed else "[bold cyan]Cancelando..."
                 try:
                     with console.status(f"{status_msg}", spinner="dots"):

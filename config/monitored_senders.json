@@ -1,0 +1,9 @@
+{
+  "senders": [
+    {
+      "email": "joseeparedes14@gmail.com",
+      "description": "Facturas de la empresa",
+      "enabled": true
+    }
+  ]
+}

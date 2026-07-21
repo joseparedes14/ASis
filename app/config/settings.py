@@ -5,6 +5,7 @@ Uses pydantic-settings to provide validated, typed configuration
 with automatic .env file loading.
 """
 
+import json
 from pathlib import Path
 from typing import Optional
 
@@ -93,6 +94,18 @@ class Settings(BaseSettings):
         description="Path to Google OAuth2 credentials JSON file",
     )
 
+    # ── Email Monitor Configuration ────────────────────────────────────
+    monitored_senders_file: Path = Field(
+        default=Path("./config/monitored_senders.json"),
+        description="JSON file with monitored sender email addresses",
+    )
+    email_monitor_interval: int = Field(
+        default=5,
+        ge=1,
+        le=60,
+        description="Email monitor polling interval in minutes",
+    )
+
     # ── Storage Configuration ───────────────────────────────────────────
     data_dir: Path = Field(
         default=Path("./data"),
@@ -163,6 +176,24 @@ class Settings(BaseSettings):
             dir_path.mkdir(parents=True, exist_ok=True)
         if self.log_file:
             self.log_file.parent.mkdir(parents=True, exist_ok=True)
+
+    def get_monitored_senders(self) -> list[str]:
+        """Read the list of monitored sender email addresses from JSON.
+
+        Returns:
+            List of enabled sender email addresses.
+        """
+        if not self.monitored_senders_file.exists():
+            return []
+        try:
+            data = json.loads(self.monitored_senders_file.read_text(encoding="utf-8"))
+            return [
+                s["email"]
+                for s in data.get("senders", [])
+                if s.get("enabled", True)
+            ]
+        except (json.JSONDecodeError, KeyError):
+            return []
 
 
 def get_settings() -> Settings:

@@ -1,9 +1,9 @@
 """
 Gmail OAuth2 Authorization Script.
 
-Run this script ONCE to authorize your application to send emails
-via Gmail SMTP. After authorization, a refresh token will be saved
-to data/oauth_token.json and used automatically for future requests.
+Run this script to authorize your application for Gmail access (SMTP + IMAP).
+After authorization, a refresh token will be saved to data/oauth_token.json
+and used automatically for future requests.
 
 Usage:
     python scripts/authorize_gmail.py
@@ -14,6 +14,7 @@ Requirements:
     3. EMAIL_ADDRESS configured in .env file
 """
 
+import asyncio
 import sys
 from pathlib import Path
 
@@ -22,6 +23,8 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 from app.config.settings import get_settings
+from app.services.imap_service import ImapEmailService
+from app.services.oauth_helper import load_oauth_credentials
 from app.services.smtp_service import GmailSMTPService
 
 
@@ -35,7 +38,6 @@ def main() -> None:
     try:
         settings = get_settings()
 
-        # Check if email is configured
         if not settings.email_address:
             print("ERROR: EMAIL_ADDRESS not configured.")
             print()
@@ -43,7 +45,6 @@ def main() -> None:
             print("  EMAIL_ADDRESS=your-email@gmail.com")
             sys.exit(1)
 
-        # Check if credentials file exists
         credentials_file = Path(settings.email_oauth_credentials_file)
         if not credentials_file.exists():
             print(f"ERROR: OAuth2 credentials file not found: {credentials_file}")
@@ -56,14 +57,12 @@ def main() -> None:
             print("  5. Download the JSON file and save as credentials.json")
             sys.exit(1)
 
-        print(f"Email address: {settings.email_address}")
-        print(f"Credentials file: {credentials_file}")
-        print(f"Token file: {settings.email_oauth_token_file}")
+        print(f"Email address:  {settings.email_address}")
+        print(f"Credentials:    {credentials_file}")
+        print(f"Token file:     {settings.email_oauth_token_file}")
         print()
 
-        # Create service and perform authorization
-        service = GmailSMTPService(settings)
-
+        # Perform OAuth2 authorization (opens browser)
         print("Starting authorization flow...")
         print("A browser window will open. Please:")
         print("  1. Sign in with your Google account")
@@ -71,8 +70,7 @@ def main() -> None:
         print("  3. Click 'Allow'")
         print()
 
-        # This will open the browser and perform the OAuth flow
-        creds = service._load_credentials()
+        load_oauth_credentials(settings)
 
         print()
         print("=" * 60)
@@ -81,23 +79,32 @@ def main() -> None:
         print()
         print(f"Token saved to: {settings.email_oauth_token_file}")
         print()
-        print("You can now use the send_email tool in your agent.")
-        print("The token will be refreshed automatically when needed.")
-        print()
 
-        # Test connection
+        # Test SMTP connection
         print("Testing SMTP connection...")
-        import asyncio
+        smtp_service = GmailSMTPService(settings)
 
-        async def test_connection():
-            await service.connect()
-            await service.disconnect()
-            return True
+        async def test_smtp():
+            await smtp_service.connect()
+            await smtp_service.disconnect()
 
-        asyncio.run(test_connection())
+        asyncio.run(test_smtp())
+        print("  SMTP: OK")
+
+        # Test IMAP connection
+        print("Testing IMAP connection...")
+        imap_service = ImapEmailService(settings)
+
+        async def test_imap():
+            await imap_service.connect()
+            await imap_service.disconnect()
+
+        asyncio.run(test_imap())
+        print("  IMAP: OK")
 
         print()
-        print("SUCCESS: SMTP connection test passed!")
+        print("All tests passed! You can now use the email tools.")
+        print("The token will be refreshed automatically when needed.")
         print()
 
     except FileNotFoundError as e:
