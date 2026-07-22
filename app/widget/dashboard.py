@@ -61,12 +61,17 @@ class DashboardWidget(QWidget):
     _sig_system = pyqtSignal(str)
     _sig_status = pyqtSignal(object, str)
     _sig_input_enabled = pyqtSignal(bool)
+    _sig_confirmation = pyqtSignal(list)
 
     def __init__(self) -> None:
         super().__init__()
         self._expanded = False
         self._drag_pos = None
-        self._agent = AgentBridge()
+        self._confirm_event = threading.Event()
+        self._confirm_result = False
+        self._agent = AgentBridge(
+            confirmation_handler=self._handle_confirmation
+        )
         self._setup_window()
         self._setup_components()
         self._setup_layout()
@@ -78,6 +83,7 @@ class DashboardWidget(QWidget):
         self._sig_system.connect(self._on_system_message)
         self._sig_status.connect(self._on_status_update)
         self._sig_input_enabled.connect(self._on_input_enabled)
+        self._sig_confirmation.connect(self._on_confirmation_needed)
 
     def _setup_window(self) -> None:
         self.setWindowTitle("ASis Dashboard")
@@ -303,6 +309,30 @@ class DashboardWidget(QWidget):
 
     def _on_input_enabled(self, enabled: bool) -> None:
         self._prompt_input.set_enabled(enabled)
+
+    def _on_confirmation_needed(self, tool_calls: list) -> None:
+        """Show confirmation bar in the response panel (main thread)."""
+        bar = self._response_panel.show_confirmation(tool_calls)
+        bar.confirmed.connect(self._on_confirm_approved)
+        bar.rejected.connect(self._on_confirm_rejected)
+
+    def _on_confirm_approved(self) -> None:
+        self._response_panel.remove_confirmation()
+        self._confirm_result = True
+        self._confirm_event.set()
+
+    def _on_confirm_rejected(self) -> None:
+        self._response_panel.remove_confirmation()
+        self._confirm_result = False
+        self._confirm_event.set()
+
+    def _handle_confirmation(self, pending_tools: list[dict]) -> bool:
+        """Called from worker thread — signals the UI and blocks until
+        the user responds."""
+        self._confirm_event.clear()
+        self._sig_confirmation.emit(pending_tools)
+        self._confirm_event.wait()
+        return self._confirm_result
 
     # ── Actions ─────────────────────────────────────────────────────
 

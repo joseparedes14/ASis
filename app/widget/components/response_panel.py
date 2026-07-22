@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (
+    QHBoxLayout,
     QLabel,
+    QPushButton,
     QScrollArea,
     QVBoxLayout,
     QWidget,
@@ -80,6 +82,90 @@ class ChatBubble(QWidget):
             padding-bottom: 2px;
         """)
         layout.insertWidget(0, sender_label)
+
+
+class ConfirmationBar(QWidget):
+    """Inline confirmation prompt with Confirm / Cancel buttons."""
+
+    confirmed = pyqtSignal()
+    rejected = pyqtSignal()
+
+    def __init__(
+        self, tool_calls: list[dict], parent: QWidget | None = None
+    ) -> None:
+        super().__init__(parent)
+        self._setup_ui(tool_calls)
+
+    def _setup_ui(self, tool_calls: list[dict]) -> None:
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(8, 6, 8, 6)
+        layout.setSpacing(6)
+
+        header = QLabel("\u26a0\ufe0f  El agente quiere ejecutar:")
+        header.setStyleSheet(f"""
+            color: {COLORS.warning};
+            font-size: 11px;
+            font-weight: 600;
+            font-family: {FONT_FAMILY};
+        """)
+        layout.addWidget(header)
+
+        for call in tool_calls:
+            args_str = ", ".join(
+                f"{k}={v!r:.60}" for k, v in call.get("args", {}).items()
+            )
+            detail = QLabel(f"  \u2022 {call['name']}({args_str})")
+            detail.setWordWrap(True)
+            detail.setStyleSheet(f"""
+                color: {COLORS.text_secondary};
+                font-size: 11px;
+                font-family: {FONT_FAMILY};
+                padding: 2px 4px;
+            """)
+            layout.addWidget(detail)
+
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
+
+        confirm_btn = QPushButton("Confirmar")
+        confirm_btn.setFixedHeight(28)
+        confirm_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        confirm_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {COLORS.success_dim};
+                border: 1px solid {COLORS.success};
+                border-radius: 6px;
+                padding: 4px 16px;
+                color: {COLORS.success};
+                font-family: {FONT_FAMILY};
+                font-size: 11px;
+                font-weight: 600;
+            }}
+            QPushButton:hover {{ background-color: rgba(166,227,161,0.25); }}
+        """)
+        confirm_btn.clicked.connect(self.confirmed.emit)
+
+        cancel_btn = QPushButton("Cancelar")
+        cancel_btn.setFixedHeight(28)
+        cancel_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        cancel_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {COLORS.error_dim};
+                border: 1px solid {COLORS.error};
+                border-radius: 6px;
+                padding: 4px 16px;
+                color: {COLORS.error};
+                font-family: {FONT_FAMILY};
+                font-size: 11px;
+                font-weight: 600;
+            }}
+            QPushButton:hover {{ background-color: rgba(243,139,168,0.25); }}
+        """)
+        cancel_btn.clicked.connect(self.rejected.emit)
+
+        btn_row.addWidget(confirm_btn)
+        btn_row.addWidget(cancel_btn)
+        layout.addLayout(btn_row)
 
 
 class ResponsePanel(QWidget):
@@ -196,6 +282,7 @@ class ResponsePanel(QWidget):
             self._thinking_label = None
 
     def clear_messages(self) -> None:
+        self.remove_confirmation()
         while self._messages_layout.count() > 1:
             item = self._messages_layout.takeAt(0)
             widget = item.widget()
@@ -203,6 +290,29 @@ class ResponsePanel(QWidget):
                 widget.deleteLater()
         self._placeholder.show()
         self._messages_layout.insertWidget(0, self._placeholder)
+
+    def show_confirmation(
+        self, tool_calls: list[dict]
+    ) -> ConfirmationBar:
+        """Insert a confirmation bar and return it for signal connection."""
+        if self._placeholder.isVisible():
+            self._placeholder.hide()
+        bar = ConfirmationBar(tool_calls)
+        self._messages_layout.insertWidget(
+            self._messages_layout.count() - 1, bar
+        )
+        self._scroll_to_bottom()
+        return bar
+
+    def remove_confirmation(self) -> None:
+        """Remove any active confirmation bar."""
+        for i in range(self._messages_layout.count()):
+            item = self._messages_layout.itemAt(i)
+            if item and item.widget() and isinstance(
+                item.widget(), ConfirmationBar
+            ):
+                item.widget().deleteLater()
+                break
 
     def _scroll_to_bottom(self) -> None:
         sb = self._scroll.verticalScrollBar()

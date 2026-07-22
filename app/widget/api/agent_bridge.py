@@ -1,13 +1,13 @@
 """Bridge between the widget and the existing LangGraph agent.
 
 Initializes the agent graph from app.agent, routes messages through it,
-handles tool confirmations, and returns responses — all while the widget
-only needs to call ``AgentBridge.send_message()``.
+handles tool confirmations via a callback, and returns responses.
 """
 
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 
 from langchain_core.messages import AIMessage, HumanMessage
 
@@ -23,17 +23,21 @@ logger = logging.getLogger("asis.widget.agent_bridge")
 class AgentBridge:
     """Synchronous wrapper around the LangGraph agent for the widget.
 
-    Usage::
-
-        bridge = AgentBridge()
-        response = bridge.send_message("Busca mis emails recientes")
+    Args:
+        confirmation_handler: Callable that receives a list of pending
+            tool call dicts and returns True to confirm or False to abort.
+            If ``None``, all tools are auto-confirmed.
     """
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        confirmation_handler: Callable[[list[dict]], bool] | None = None,
+    ) -> None:
         self._settings = get_settings()
         self._graph = build_graph(self._settings)
         self._state: AgentState = create_initial_state()
         self._config = {"configurable": {"thread_id": "widget-session-1"}}
+        self._confirm_handler = confirmation_handler
         logger.info(
             "AgentBridge initialized — provider=%s, model=%s",
             self._settings.llm_provider,
@@ -43,12 +47,7 @@ class AgentBridge:
     # ── Public API ───────────────────────────────────────────────────
 
     def send_message(self, text: str) -> str:
-        """Send a user message through the full agent graph.
-
-        Runs the LangGraph pipeline (reasoning -> tool execution ->
-        response generation) and returns the final text response.
-        Handles tool confirmation automatically.
-        """
+        """Send a user message through the full agent graph."""
         self._state["messages"].append(HumanMessage(content=text))
 
         try:
@@ -108,7 +107,8 @@ class AgentBridge:
     # ── Private ──────────────────────────────────────────────────────
 
     def _run_graph(self, state: AgentState) -> AgentState | None:
-        """Stream through the graph, auto-confirming tools when needed."""
+        """Stream through the graph, asking the user for confirmation
+        when sensitive tools are invoked."""
         final_state: AgentState | None = None
 
         for event in self._graph.stream(
@@ -121,8 +121,19 @@ class AgentBridge:
 
         # Handle tool confirmation interrupt
         if final_state.get("requires_confirmation"):
-            logger.info("Auto-confirming tool execution")
-            final_state["user_confirmed"] = True
+            pending = final_state.get("pending_tool_calls", [])
+            logger.info(
+                "Confirmation needed for %d tool(s): %s",
+                len(pending),
+                [c["name"] for c in pending],
+            )
+
+            if self._confirm_handler is not None:
+                confirmed = self._confirm_handler(pending)
+            else:
+                confirmed = True
+
+            final_state["user_confirmed"] = confirmed
             final_state["metadata"] = {
                 **final_state.get("metadata", {}),
                 "resume": True,
