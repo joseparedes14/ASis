@@ -2,7 +2,7 @@
   "folders": [
     {
       "name": "Documentos",
-      "description": "Documentos generales, textos, manuales y guías",
+      "description": "Documentos sin especificacion. Solo emplear si no encaja con ningun otro",
       "path": "Documentos"
     },
     {
@@ -24,11 +24,6 @@
       "name": "Personal",
       "description": "Documentos personales, contratos, certificados y trámites",
       "path": "Personal"
-    },
-    {
-      "name": "Finanzas",
-      "description": "Todo lo que tenga que ver con finanzas y facturas",
-      "path": "Finanzas"
     }
   ]
 }

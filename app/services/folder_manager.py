@@ -56,10 +56,24 @@ class FolderManager:
         self._config_path = config_path or Path("./config/destination_folders.json")
         self._asiorga_root = ASIORGA_ROOT
         self._ensure_root()
+        self._sync_physical_folders()
 
     def _ensure_root(self) -> None:
         """Create ASIORGA root directory if it doesn't exist."""
         self._asiorga_root.mkdir(parents=True, exist_ok=True)
+
+    def _sync_physical_folders(self) -> None:
+        """Create physical folders for all entries in the config.
+
+        Ensures that every folder defined in destination_folders.json
+        actually exists on disk inside ASIORGA.
+        """
+        config = self._load_config()
+        for folder in config.get("folders", []):
+            folder_path = self._asiorga_root / folder["path"]
+            if not folder_path.exists():
+                folder_path.mkdir(parents=True, exist_ok=True)
+                logger.info("Created missing ASIORGA folder: %s", folder_path)
 
     def _load_config(self) -> dict:
         """Load destination folders configuration from JSON."""

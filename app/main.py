@@ -21,7 +21,7 @@ from app.config.logging_config import get_logger, setup_logging
 from app.config.settings import get_settings
 from app.models.llm import LLMProviderError, check_ollama_connection
 from app.services.email_monitor import EmailMonitor
-from app.services.folder_monitor import FolderMonitor
+from app.services.folder_monitor import get_folder_monitor
 
 logger = get_logger(__name__)
 console = Console()
@@ -232,7 +232,7 @@ def main() -> None:
         )
 
     # Start folder monitor
-    folder_monitor = FolderMonitor(settings)
+    folder_monitor = get_folder_monitor(settings)
     from app.models.llm import create_llm
     llm = create_llm(settings)
     folder_monitor.set_llm(llm)

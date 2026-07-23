@@ -11,13 +11,12 @@ from langchain_core.tools import tool
 
 from app.config.logging_config import get_logger
 from app.services.folder_manager import FolderManager
-from app.services.folder_monitor import FolderMonitor
+from app.services.folder_monitor import get_folder_monitor
 
 logger = get_logger(__name__)
 
-# Shared instances (initialized on first use)
+# Shared FolderManager instance (initialized on first use)
 _folder_manager: FolderManager | None = None
-_folder_monitor: FolderMonitor | None = None
 
 
 def _get_folder_manager() -> FolderManager:
@@ -25,13 +24,6 @@ def _get_folder_manager() -> FolderManager:
     if _folder_manager is None:
         _folder_manager = FolderManager()
     return _folder_manager
-
-
-def _get_folder_monitor() -> FolderMonitor:
-    global _folder_monitor
-    if _folder_monitor is None:
-        _folder_monitor = FolderMonitor()
-    return _folder_monitor
 
 
 @tool
@@ -48,7 +40,7 @@ se procesarán automáticamente y se clasificarán en ASIORGA.
     Returns:
         Mensaje de confirmación o error.
     """
-    monitor = _get_folder_monitor()
+    monitor = get_folder_monitor()
     return monitor.add_folder(path)
 
 
@@ -63,7 +55,7 @@ no se seguirán procesando.
     Returns:
         Mensaje de confirmación o error.
     """
-    monitor = _get_folder_monitor()
+    monitor = get_folder_monitor()
     return monitor.remove_folder(path)
 
 
@@ -74,7 +66,7 @@ def list_monitored_folders() -> str:
     Returns:
         Lista de carpetas monitoreadas.
     """
-    monitor = _get_folder_monitor()
+    monitor = get_folder_monitor()
     folders = monitor.list_folders()
 
     if not folders:

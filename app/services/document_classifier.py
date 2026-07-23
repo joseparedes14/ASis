@@ -5,11 +5,15 @@ Analyzes extracted document content and classifies it into
 the appropriate destination folder based on folder descriptions.
 """
 
+import concurrent.futures
 from typing import Optional
 
 from app.config.logging_config import get_logger
 
 logger = get_logger(__name__)
+
+# Timeout for LLM classification (seconds)
+CLASSIFICATION_TIMEOUT = 30
 
 CLASSIFICATION_PROMPT = """\
 Eres un asistente de clasificación de documentos. Analiza el siguiente contenido \
@@ -99,8 +103,13 @@ class DocumentClassifier:
                 content=truncated,
             )
 
+            # Call LLM with timeout to prevent hanging
             from langchain_core.messages import HumanMessage
-            response = self._llm.invoke([HumanMessage(content=prompt)])
+
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                future = executor.submit(self._llm.invoke, [HumanMessage(content=prompt)])
+                response = future.result(timeout=CLASSIFICATION_TIMEOUT)
+
             result = response.content.strip()
 
             # Validate the result is a valid folder name
@@ -115,6 +124,13 @@ class DocumentClassifier:
                 )
                 return self._fallback_classify(filename)
 
+        except concurrent.futures.TimeoutError:
+            logger.warning(
+                "LLM classification timed out for %s after %ds, using fallback",
+                filename,
+                CLASSIFICATION_TIMEOUT,
+            )
+            return self._fallback_classify(filename)
         except Exception as e:
             logger.error("Classification failed for %s: %s", filename, e)
             return self._fallback_classify(filename)

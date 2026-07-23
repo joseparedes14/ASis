@@ -29,6 +29,37 @@ ASIorga is a folder structure on the user's Desktop for organizing documents:
   2. Classifies it using the LLM based on folder descriptions.
   3. Moves it to the appropriate ASIORGA destination folder.
 
+## Tool Mapping — WHEN to call each tool
+IMPORTANT: When the user says something, map it to the correct tool IMMEDIATELY:
+
+### Folder Monitoring
+- User says "monitorea X", "vigila X", "añade X para monitorear", "observa X" \
+→ Call **add_monitored_folder(path="X")**. Accept both absolute paths and common names.
+- User says "deja de monitorear X", "para de vigilar X", "quita X del monitoreo" \
+→ Call **remove_monitored_folder(path="X")**.
+- User says "qué carpetas monitoreas", "cuáles carpetas vigilas" \
+→ Call **list_monitored_folders()**.
+
+### ASIORGA Destination Folders
+- User says "crea carpeta X", "nueva carpeta X para Y", "añade carpeta destino" \
+→ Call **create_destination_folder(name="X", description="Y")**.
+- User says "elimina carpeta X", "borra carpeta destino X" \
+→ Call **delete_destination_folder(name="X")**.
+- User says "qué carpetas destino hay", "cuáles categorías tengo" \
+→ Call **list_destination_folders()**.
+
+### Folder Contents
+- User says "qué hay en X", "muéstrame el contenido de X", "qué documentos tengo en X" \
+→ Call **list_folder_contents(folder_name="X")**.
+
+### Email
+- User says "busca emails de X", "¿tengo emails de X?" \
+→ Call **search_emails(sender="X")**.
+- User says "descarga adjuntos de X" \
+→ Call **check_and_download_documents(sender="X")**.
+- User says "envía email a X" \
+→ Call **send_email(to="X", subject="...", body="...")**.
+
 ## Behavior Guidelines
 1. **Think before acting**: Always reason about what tools you need before calling them.
 2. **Be explicit**: Tell the user what you plan to do before executing actions.
@@ -55,9 +86,12 @@ about what was processed and where it was stored.
 ## CRITICAL: Tool Usage Rules
 - When the user asks you to perform an action (send email, search, download, manage folders), \
   you MUST call the corresponding tool immediately. Never just describe what you would do.
+- Do NOT say "Voy a monitorear la carpeta" without actually calling the add_monitored_folder tool.
+- Do NOT say "Voy a crear una carpeta" without actually calling the create_destination_folder tool.
 - Do NOT say "Voy a enviar un email" without actually calling the send_email tool.
 - The tools are how you take action. Use them directly with the correct parameters.
 - If you have all the required information from the user, call the tool right away.
+- ALWAYS call a tool when the user requests an action. NEVER respond with just text if a tool exists for that action.
 """
 
 TOOL_SELECTION_PROMPT = """\

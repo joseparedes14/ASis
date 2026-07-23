@@ -15,7 +15,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from watchdog.events import FileSystemEventHandler, FileCreatedEvent
+from watchdog.events import FileSystemEventHandler, FileCreatedEvent, FileMovedEvent
 from watchdog.observers import Observer
 
 from app.config.logging_config import get_logger
@@ -69,6 +69,45 @@ class _DebouncedHandler(FileSystemEventHandler):
             args=(file_path,),
         )
         self._timers[key].start()
+
+    def on_moved(self, event: FileMovedEvent) -> None:
+        """Handle file move/rename events (e.g. browser downloads finishing)."""
+        if event.is_directory:
+            return
+
+        file_path = Path(event.dest_path)
+        if file_path.suffix.lower() not in SUPPORTED_EXTENSIONS:
+            return
+
+        # Debounce: wait for file to finish writing
+        key = str(file_path)
+        if key in self._timers:
+            self._timers[key].cancel()
+
+        self._timers[key] = threading.Timer(
+            self._debounce_seconds,
+            self._monitor._process_file,
+            args=(file_path,),
+        )
+        self._timers[key].start()
+
+
+# Module-level singleton instance
+_instance: Optional["FolderMonitor"] = None
+_instance_lock = threading.Lock()
+
+
+def get_folder_monitor(settings=None) -> "FolderMonitor":
+    """Get or create the global FolderMonitor singleton.
+
+    Ensures all components (CLI, widget, tools) share the same instance.
+    """
+    global _instance
+    if _instance is None:
+        with _instance_lock:
+            if _instance is None:
+                _instance = FolderMonitor(settings)
+    return _instance
 
 
 class FolderMonitor:
@@ -282,6 +321,7 @@ class FolderMonitor:
         """Process a newly detected file.
 
         Extracts content, classifies, and moves to destination folder.
+        Runs in a background thread from the debounce timer.
         """
         logger.info("Processing new file: %s", file_path)
 
@@ -325,7 +365,7 @@ class FolderMonitor:
             fm = self._get_folder_manager()
             folder_descriptions = fm.get_destination_descriptions()
 
-            # Classify using LLM
+            # Classify using LLM (with timeout)
             classifier = self._get_classifier()
             destination = classifier.classify(
                 content=content,
