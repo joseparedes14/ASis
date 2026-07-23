@@ -21,6 +21,7 @@ from app.config.logging_config import get_logger, setup_logging
 from app.config.settings import get_settings
 from app.models.llm import LLMProviderError, check_ollama_connection
 from app.services.email_monitor import EmailMonitor
+from app.services.folder_monitor import FolderMonitor
 
 logger = get_logger(__name__)
 console = Console()
@@ -154,6 +155,38 @@ def display_notifications(notifications: list) -> None:
         )
 
 
+def display_folder_notifications(notifications: list) -> None:
+    """Display folder monitoring notifications to the user.
+
+    Args:
+        notifications: List of FileNotification objects.
+    """
+    for notif in notifications:
+        if notif.success:
+            console.print()
+            console.print(
+                Panel(
+                    f"[bold]Archivo:[/] {notif.filename}\n"
+                    f"[bold]Origen:[/] {notif.source_folder}\n"
+                    f"[bold]Destino:[/] ASIORGA/{notif.destination_folder}\n"
+                    f"[bold]Hora:[/] {notif.timestamp.strftime('%H:%M:%S')}",
+                    title="📁 Archivo clasificado",
+                    border_style="green",
+                )
+            )
+        else:
+            console.print()
+            console.print(
+                Panel(
+                    f"[bold]Archivo:[/] {notif.filename}\n"
+                    f"[bold]Error:[/] {notif.message}\n"
+                    f"[bold]Hora:[/] {notif.timestamp.strftime('%H:%M:%S')}",
+                    title="❌ Error al procesar archivo",
+                    border_style="red",
+                )
+            )
+
+
 # ── Main Loop ───────────────────────────────────────────────────────────
 
 
@@ -198,6 +231,14 @@ def main() -> None:
             f"[dim]📧 Monitor de email activo — vigilando: {', '.join(monitored_senders)}[/]\n"
         )
 
+    # Start folder monitor
+    folder_monitor = FolderMonitor(settings)
+    from app.models.llm import create_llm
+    llm = create_llm(settings)
+    folder_monitor.set_llm(llm)
+    folder_monitor.start()
+    console.print("[dim]📁 Monitor de carpetas activo — ASIORGA[/]\n")
+
     # Conversation state
     state = create_initial_state()
     config = {"configurable": {"thread_id": "cli-session-1"}}
@@ -209,10 +250,16 @@ def main() -> None:
         if notifications:
             display_notifications(notifications)
 
+        # Check for folder monitoring notifications
+        folder_notifications = folder_monitor.get_notifications()
+        if folder_notifications:
+            display_folder_notifications(folder_notifications)
+
         try:
             user_input = console.input("\n[bold blue]Tú:[/] ").strip()
         except (EOFError, KeyboardInterrupt):
             monitor.stop()
+            folder_monitor.stop()
             console.print("\n[dim]👋 ¡Hasta luego![/]")
             break
 
@@ -223,6 +270,7 @@ def main() -> None:
         command = user_input.lower()
         if command in ("/exit", "/quit"):
             monitor.stop()
+            folder_monitor.stop()
             console.print("[dim]👋 ¡Hasta luego![/]")
             break
         elif command == "/help":

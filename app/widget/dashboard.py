@@ -21,6 +21,7 @@ from PyQt6.QtCore import (
 from PyQt6.QtGui import QColor, QPainter, QPainterPath
 from PyQt6.QtWidgets import QApplication, QVBoxLayout, QWidget
 
+from app.services.email_monitor import EmailMonitor
 from app.widget.api.agent_bridge import AgentBridge
 from app.widget.api.llm_client import AgentStatus
 from app.widget.components.prompt_input import PromptInput
@@ -62,6 +63,7 @@ class DashboardWidget(QWidget):
     _sig_status = pyqtSignal(object, str)
     _sig_input_enabled = pyqtSignal(bool)
     _sig_confirmation = pyqtSignal(list)
+    _sig_folder_notification = pyqtSignal(str, str, str)  # filename, source, destination
 
     def __init__(self) -> None:
         super().__init__()
@@ -72,6 +74,7 @@ class DashboardWidget(QWidget):
         self._agent = AgentBridge(
             confirmation_handler=self._handle_confirmation
         )
+        self._start_email_monitor()
         self._setup_window()
         self._setup_components()
         self._setup_layout()
@@ -84,6 +87,22 @@ class DashboardWidget(QWidget):
         self._sig_status.connect(self._on_status_update)
         self._sig_input_enabled.connect(self._on_input_enabled)
         self._sig_confirmation.connect(self._on_confirmation_needed)
+        self._sig_folder_notification.connect(self._on_folder_notification)
+
+    def _start_email_monitor(self) -> None:
+        """Start the background email monitor if monitored senders are configured."""
+        settings = self._agent.settings
+        monitored_senders = settings.get_monitored_senders()
+        if monitored_senders:
+            self._email_monitor = EmailMonitor(settings)
+            self._email_monitor.start()
+            logger.info(
+                "Email monitor active — watching: %s",
+                ", ".join(monitored_senders),
+            )
+        else:
+            self._email_monitor = None
+            logger.info("No monitored senders configured — email monitor not started")
 
     def _setup_window(self) -> None:
         self.setWindowTitle("ASis Dashboard")
@@ -139,6 +158,11 @@ class DashboardWidget(QWidget):
         self._status_timer.start(5000)
         self._check_status()
 
+        # Timer for folder monitoring notifications
+        self._folder_notification_timer = QTimer(self)
+        self._folder_notification_timer.timeout.connect(self._check_folder_notifications)
+        self._folder_notification_timer.start(2000)
+
     def _connect_signals(self) -> None:
         self._header.collapse_clicked.connect(self.collapse)
         self._header.compact_clicked.connect(self.expand)
@@ -152,6 +176,12 @@ class DashboardWidget(QWidget):
         self._quick_actions.file_selected.connect(self._on_file_selected)
 
         self._rag_drop.file_dropped.connect(self._on_file_dropped)
+
+    def closeEvent(self, event) -> None:
+        """Clean up resources when the widget is closed."""
+        self._folder_monitor.stop()
+        logger.info("Widget closed — folder monitor stopped")
+        super().closeEvent(event)
 
     # ── State Management ────────────────────────────────────────────
 
@@ -455,3 +485,31 @@ class DashboardWidget(QWidget):
             status = AgentStatus.OFFLINE
             model = ""
         self._sig_status.emit(status, model)
+
+    def _check_folder_notifications(self) -> None:
+        """Check for folder monitoring notifications in background thread."""
+        thread = threading.Thread(
+            target=self._folder_notification_worker, daemon=True
+        )
+        thread.start()
+
+    def _folder_notification_worker(self) -> None:
+        """Worker thread to check folder notifications."""
+        try:
+            notifications = self._agent.get_folder_notifications()
+            for notif in notifications:
+                self._sig_folder_notification.emit(
+                    notif.filename,
+                    notif.source_folder,
+                    notif.destination_folder,
+                )
+        except Exception as e:
+            logger.error("Error checking folder notifications: %s", e)
+
+    def _on_folder_notification(self, filename: str, source: str, destination: str) -> None:
+        """Display a folder monitoring notification in the response panel."""
+        if destination == "ERROR":
+            msg = f"❌ Error al procesar **{filename}**"
+        else:
+            msg = f"📁 **{filename}** clasificado → **ASIorga/{destination}**"
+        self._response_panel.add_system_message(msg)

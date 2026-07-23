@@ -1,0 +1,34 @@
+{
+  "folders": [
+    {
+      "name": "Documentos",
+      "description": "Documentos generales, textos, manuales y guías",
+      "path": "Documentos"
+    },
+    {
+      "name": "Fotos",
+      "description": "Fotografías, paisajes, personas y capturas de pantalla",
+      "path": "Fotos"
+    },
+    {
+      "name": "Facturas",
+      "description": "Facturas, recibos, tickets y documentos de compra",
+      "path": "Facturas"
+    },
+    {
+      "name": "Trabajo",
+      "description": "Documentos laborales, informes, presentaciones y proyectos",
+      "path": "Trabajo"
+    },
+    {
+      "name": "Personal",
+      "description": "Documentos personales, contratos, certificados y trámites",
+      "path": "Personal"
+    },
+    {
+      "name": "Finanzas",
+      "description": "Todo lo que tenga que ver con finanzas y facturas",
+      "path": "Finanzas"
+    }
+  ]
+}

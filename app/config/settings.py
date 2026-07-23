@@ -120,6 +120,20 @@ class Settings(BaseSettings):
         description="Directory for email attachments",
     )
 
+    # ── ASIORGA Configuration ──────────────────────────────────────────
+    asiorga_root: Path = Field(
+        default=Path.home() / "Desktop" / "ASIorga",
+        description="Root directory for organized documents (ASIorga)",
+    )
+    monitored_folders_file: Path = Field(
+        default=Path("./config/monitored_folders.json"),
+        description="JSON file with monitored folder paths",
+    )
+    destination_folders_file: Path = Field(
+        default=Path("./config/destination_folders.json"),
+        description="JSON file with destination folder configurations",
+    )
+
     # ── Application Settings ────────────────────────────────────────────
     log_level: str = Field(
         default="INFO",
@@ -146,6 +160,9 @@ class Settings(BaseSettings):
             "delete_email",
             "organize_documents",
             "send_email",
+            "add_monitored_folder",
+            "create_destination_folder",
+            "delete_destination_folder",
         ],
         description="Tools that require user confirmation before execution",
     )

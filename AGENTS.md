@@ -5,6 +5,7 @@
 - Responde en el mismo idioma que el usuario.
 - Sé conciso y directo.
 - Antes de modificar código existente, lee el archivo completo para entender el contexto.
+- **Cualquier nueva funcionalidad implementada debe incluir su integración obligatoria en `app/widget/`** para que funcione directamente desde el widget. No basta con implementar solo la lógica en `app/services/` o `app/tools/`; se debe conectar al widget a través de `app/widget/api/agent_bridge.py` y, si es necesario, crear/modificar componentes UI en `app/widget/components/`.
 
 ---
 

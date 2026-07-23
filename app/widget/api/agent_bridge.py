@@ -15,6 +15,7 @@ from app.agent.graph import build_graph
 from app.agent.state import AgentState, create_initial_state
 from app.config.settings import get_settings
 from app.models.llm import check_ollama_connection
+from app.services.folder_monitor import FolderMonitor
 from app.widget.api.llm_client import AgentStatus
 
 logger = logging.getLogger("asis.widget.agent_bridge")
@@ -38,6 +39,14 @@ class AgentBridge:
         self._state: AgentState = create_initial_state()
         self._config = {"configurable": {"thread_id": "widget-session-1"}}
         self._confirm_handler = confirmation_handler
+
+        # Start folder monitor
+        self._folder_monitor = FolderMonitor(self._settings)
+        from app.models.llm import create_llm
+        llm = create_llm(self._settings)
+        self._folder_monitor.set_llm(llm)
+        self._folder_monitor.start()
+
         logger.info(
             "AgentBridge initialized — provider=%s, model=%s",
             self._settings.llm_provider,
@@ -90,6 +99,14 @@ class AgentBridge:
             return AgentStatus.ONLINE
         except Exception:
             return AgentStatus.OFFLINE
+
+    def get_folder_notifications(self) -> list:
+        """Get pending folder monitoring notifications."""
+        return self._folder_monitor.get_notifications()
+
+    def stop_folder_monitor(self) -> None:
+        """Stop the folder monitor on shutdown."""
+        self._folder_monitor.stop()
 
     @property
     def model_name(self) -> str:

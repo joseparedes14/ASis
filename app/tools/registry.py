@@ -102,9 +102,11 @@ class ToolRegistry:
         # Import tool modules — add new modules here
         from app.tools.email_tools import EMAIL_TOOLS
         from app.tools.file_tools import FILE_TOOLS
+        from app.tools.folder_tools import FOLDER_TOOLS
 
         self.register_many(EMAIL_TOOLS)
         self.register_many(FILE_TOOLS)
+        self.register_many(FOLDER_TOOLS)
 
         logger.info(
             "Tool discovery complete — %d tools registered: %s",
