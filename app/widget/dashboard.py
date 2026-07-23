@@ -167,13 +167,13 @@ class DashboardWidget(QWidget):
         self._header.collapse_clicked.connect(self.collapse)
         self._header.compact_clicked.connect(self.expand)
         self._header.drag_requested.connect(self._on_drag)
+        self._header.close_clicked.connect(self.close)
 
         self._prompt_input.message_sent.connect(self._on_send_message)
 
         self._quick_actions.action_clicked.connect(self._on_action)
-        self._quick_actions.role_changed.connect(self._on_role_changed)
-        self._quick_actions.temperature_changed.connect(self._on_temp_changed)
         self._quick_actions.file_selected.connect(self._on_file_selected)
+        self._quick_actions.function_selected.connect(self._on_function_selected)
 
         self._rag_drop.file_dropped.connect(self._on_file_dropped)
 
@@ -260,10 +260,10 @@ class DashboardWidget(QWidget):
         )
 
         painter.setClipPath(path)
-        painter.fillRect(rect, QColor(18, 18, 28, 220))
+        painter.fillRect(rect, QColor(255, 255, 255, 160))
         painter.setClipping(False)
 
-        pen = QColor(255, 255, 255, 15)
+        pen = QColor(0, 0, 0, 20)
         painter.setPen(pen)
         painter.drawRoundedRect(
             rect.adjusted(0, 0, -1, -1),
@@ -278,7 +278,7 @@ class DashboardWidget(QWidget):
         if sys.platform == "win32":
             try:
                 enable_blur_behind(self)
-                enable_dark_mode(self)
+                # enable_dark_mode(self)
             except Exception as e:
                 logger.debug("DWM blur failed: %s", e)
 
@@ -411,6 +411,12 @@ class DashboardWidget(QWidget):
             self._response_panel.add_system_message(
                 "Modo chat completo: usa la entrada para interactuar con el agente."
             )
+        elif action.startswith("add_monitor_folder:"):
+            path = action.split(":", 1)[1]
+            from app.services.folder_monitor import get_folder_monitor
+            fm = get_folder_monitor()
+            result = fm.add_folder(path)
+            self._response_panel.add_system_message(f"📁 {result}")
 
     def _clipboard_worker(self, text: str) -> None:
         try:
@@ -420,12 +426,11 @@ class DashboardWidget(QWidget):
         self._sig_status.emit(AgentStatus.ONLINE, self._agent.model_name)
         self._sig_response.emit(response)
 
-    def _on_role_changed(self, role: str) -> None:
-        self._response_panel.add_system_message(f"Rol seleccionado: {role}")
-
-    def _on_temp_changed(self, temp: float) -> None:
+    def _on_function_selected(self, prompt_template: str) -> None:
+        self._prompt_input._input.setText(prompt_template)
+        self._prompt_input._input.setFocus()
         self._response_panel.add_system_message(
-            f"Temperatura seleccionada: {temp}"
+            "Función seleccionada. Rellena los datos en el cuadro de texto y presiona Enviar."
         )
 
     def _on_file_selected(self, path: str) -> None:

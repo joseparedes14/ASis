@@ -17,33 +17,33 @@ from PyQt6.QtGui import QColor
 @dataclass(frozen=True)
 class Colors:
     # Backgrounds
-    bg_base: str = "rgba(18, 18, 28, 220)"
-    bg_surface: str = "rgba(30, 30, 46, 180)"
-    bg_elevated: str = "rgba(40, 40, 60, 200)"
-    bg_input: str = "rgba(36, 36, 52, 200)"
-    bg_hover: str = "rgba(50, 50, 70, 180)"
-    bg_active: str = "rgba(58, 58, 82, 200)"
+    bg_base: str = "rgba(255, 255, 255, 180)"
+    bg_surface: str = "rgba(255, 255, 255, 200)"
+    bg_elevated: str = "rgba(255, 255, 255, 220)"
+    bg_input: str = "rgba(245, 245, 250, 200)"
+    bg_hover: str = "rgba(235, 235, 240, 180)"
+    bg_active: str = "rgba(225, 225, 230, 200)"
 
     # Borders
-    border_subtle: str = "rgba(255, 255, 255, 0.06)"
-    border_default: str = "rgba(255, 255, 255, 0.10)"
-    border_strong: str = "rgba(255, 255, 255, 0.16)"
+    border_subtle: str = "rgba(0, 0, 0, 0.06)"
+    border_default: str = "rgba(0, 0, 0, 0.10)"
+    border_strong: str = "rgba(0, 0, 0, 0.16)"
 
     # Text
-    text_primary: str = "#cdd6f4"
-    text_secondary: str = "#a6adc8"
-    text_muted: str = "#6c7086"
-    text_disabled: str = "#45475a"
+    text_primary: str = "#111111"
+    text_secondary: str = "#444444"
+    text_muted: str = "#777777"
+    text_disabled: str = "#999999"
 
     # Accents
-    accent: str = "#89b4fa"
-    accent_dim: str = "rgba(137, 180, 250, 0.15)"
-    success: str = "#a6e3a1"
-    success_dim: str = "rgba(166, 227, 161, 0.15)"
-    warning: str = "#f9e2af"
-    warning_dim: str = "rgba(249, 226, 175, 0.15)"
-    error: str = "#f38ba8"
-    error_dim: str = "rgba(243, 139, 168, 0.15)"
+    accent: str = "#007aff"
+    accent_dim: str = "rgba(0, 122, 255, 0.15)"
+    success: str = "#34c759"
+    success_dim: str = "rgba(52, 199, 89, 0.15)"
+    warning: str = "#ffcc00"
+    warning_dim: str = "rgba(255, 204, 0, 0.15)"
+    error: str = "#ff3b30"
+    error_dim: str = "rgba(255, 59, 48, 0.15)"
 
     # Shadows & overlays
     shadow: str = "rgba(0, 0, 0, 0.4)"
@@ -55,14 +55,14 @@ COLORS = Colors()
 
 # ── Qt Color Helpers ─────────────────────────────────────────────────────
 
-QCOLOR_ACCENT = QColor(137, 180, 250)
-QCOLOR_SUCCESS = QColor(166, 227, 161)
-QCOLOR_WARNING = QColor(249, 226, 175)
-QCOLOR_ERROR = QColor(243, 139, 168)
-QCOLOR_TEXT = QColor(205, 214, 244)
-QCOLOR_TEXT_SEC = QColor(166, 173, 200)
-QCOLOR_BG = QColor(18, 18, 28, 220)
-QCOLOR_BG_SURFACE = QColor(30, 30, 46, 180)
+QCOLOR_ACCENT = QColor(0, 122, 255)
+QCOLOR_SUCCESS = QColor(52, 199, 89)
+QCOLOR_WARNING = QColor(255, 204, 0)
+QCOLOR_ERROR = QColor(255, 59, 48)
+QCOLOR_TEXT = QColor(17, 17, 17)
+QCOLOR_TEXT_SEC = QColor(68, 68, 68)
+QCOLOR_BG = QColor(255, 255, 255, 180)
+QCOLOR_BG_SURFACE = QColor(255, 255, 255, 200)
 
 
 # ── Typography ───────────────────────────────────────────────────────────

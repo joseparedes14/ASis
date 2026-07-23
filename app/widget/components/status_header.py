@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QPainter
-from PyQt6.QtWidgets import QHBoxLayout, QLabel, QWidget
+from PyQt6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QWidget
 
 from app.widget.api.llm_client import AgentStatus
 from app.widget.styles import COLORS, COMPACT_SIZE, FONT_FAMILY, QCOLOR_ACCENT
@@ -49,6 +49,7 @@ class StatusHeader(QWidget):
     drag_requested = pyqtSignal(int, int)
     collapse_clicked = pyqtSignal()
     compact_clicked = pyqtSignal()
+    close_clicked = pyqtSignal()
 
     COMPACT_HEIGHT = COMPACT_SIZE
     EXPANDED_HEIGHT = 48
@@ -98,16 +99,24 @@ class StatusHeader(QWidget):
             font-family: {FONT_FAMILY};
         """)
 
-        self._close_btn = QLabel("\u2715")
-        self._close_btn.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._close_btn = QPushButton("\u2715")
         self._close_btn.setFixedSize(28, 28)
         self._close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._close_btn.setStyleSheet(f"""
-            font-size: 13px;
-            color: {COLORS.text_muted};
-            border-radius: 14px;
-            font-family: {FONT_FAMILY};
+            QPushButton {{
+                background-color: transparent;
+                border: none;
+                font-size: 13px;
+                color: {COLORS.text_muted};
+                border-radius: 14px;
+                font-family: {FONT_FAMILY};
+            }}
+            QPushButton:hover {{
+                background-color: {COLORS.error_dim};
+                color: {COLORS.error};
+            }}
         """)
+        self._close_btn.clicked.connect(self.close_clicked.emit)
 
         self._layout.addWidget(self._icon_label)
         self._layout.addWidget(self._dot)
