@@ -54,7 +54,7 @@ class QuickActions(QWidget):
         self._menu_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._menu_btn.setFixedHeight(34)
         self._menu_btn.setStyleSheet(self._button_style(accent=True))
-        
+
         # Setup the QMenu
         self._menu = QMenu(self)
         self._menu.setStyleSheet(f"""
@@ -76,17 +76,32 @@ class QuickActions(QWidget):
                 color: {COLORS.accent};
             }}
         """)
-        
-        self._add_function("Clasificar Documento", "Función: Clasificar Documento\nPor favor adjunta o arrastra el documento que deseas clasificar.")
-        self._add_function("Resumir Reunión", "Función: Resumir Reunión\nPega aquí las notas o transcripción de la reunión para generar un resumen.")
-        self._add_function("Redactar Email", "Función: Redactar Email\nDestinatario: [Nombre]\nAsunto: [Tema]\nPuntos clave:\n- \n- ")
-        
+
+        self._add_function(
+            "Clasificar Documento",
+            "Funcion: Clasificar Documento\n"
+            "Por favor adjunta o arrastra el documento "
+            "que deseas clasificar.",
+        )
+        self._add_function(
+            "Resumir Reunion",
+            "Funcion: Resumir Reunion\n"
+            "Pega aqui las notas o transcripcion de la "
+            "reunion para generar un resumen.",
+        )
+        self._add_function(
+            "Redactar Email",
+            "Funcion: Redactar Email\n"
+            "Destinatario: [Nombre]\nAsunto: [Tema]\n"
+            "Puntos clave:\n- \n- ",
+        )
+
         self._menu.addSeparator()
-        
+
         action_monitor = QAction("Añadir carpeta a monitorizar", self)
         action_monitor.triggered.connect(self._on_add_monitor_folder)
         self._menu.addAction(action_monitor)
-        
+
         self._menu_btn.setMenu(self._menu)
         actions_row.addWidget(self._menu_btn)
 
@@ -96,7 +111,7 @@ class QuickActions(QWidget):
         bg = COLORS.accent_dim if accent else COLORS.bg_surface
         text = COLORS.accent if accent else COLORS.text_secondary
         border = COLORS.accent if accent else COLORS.border_subtle
-        
+
         return f"""
             QPushButton {{
                 background-color: {bg};

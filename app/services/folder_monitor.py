@@ -15,7 +15,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from watchdog.events import FileSystemEventHandler, FileCreatedEvent, FileMovedEvent
+from watchdog.events import FileCreatedEvent, FileMovedEvent, FileSystemEventHandler
 from watchdog.observers import Observer
 
 from app.config.logging_config import get_logger
@@ -243,7 +243,10 @@ class FolderMonitor:
             self._observer.start()
         logger.info("Added folder to monitoring: %s", resolved)
 
-        return f"Carpeta '{resolved.name}' añadida al monitoreo. Se detectarán archivos nuevos automáticamente."
+        return (
+            f"Carpeta '{resolved.name}' anadida al monitoreo. "
+            "Se detectaran archivos nuevos automaticamente."
+        )
 
     def remove_folder(self, path: str) -> str:
         """Remove a folder from monitoring.

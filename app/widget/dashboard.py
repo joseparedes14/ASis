@@ -40,7 +40,7 @@ from app.widget.styles import (
 )
 
 if sys.platform == "win32":
-    from app.widget.dwm import enable_blur_behind, enable_dark_mode
+    from app.widget.dwm import enable_blur_behind
 
 logger = logging.getLogger("asis.widget.dashboard")
 
@@ -177,7 +177,7 @@ class DashboardWidget(QWidget):
 
         self._rag_drop.file_dropped.connect(self._on_file_dropped)
 
-    def closeEvent(self, event) -> None:
+    def closeEvent(self, event) -> None:  # noqa: N802
         """Clean up resources when the widget is closed."""
         self._folder_monitor.stop()
         logger.info("Widget closed — folder monitor stopped")

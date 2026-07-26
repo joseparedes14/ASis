@@ -5,7 +5,6 @@ Abstracts model creation so the rest of the application is decoupled
 from any specific LLM provider. Switching providers is a config change.
 """
 
-from typing import Optional
 
 from langchain_core.language_models.chat_models import BaseChatModel
 
@@ -144,8 +143,8 @@ def check_ollama_connection(base_url: str = "http://localhost:11434") -> bool:
     Returns:
         True if Ollama is reachable, False otherwise.
     """
-    import urllib.request
     import urllib.error
+    import urllib.request
 
     try:
         urllib.request.urlopen(f"{base_url}/api/tags", timeout=5)

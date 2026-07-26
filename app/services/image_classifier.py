@@ -6,7 +6,6 @@ Photos go to ASIORGA/Fotos/, documents/screenshots get OCR'd and classified.
 """
 
 from pathlib import Path
-from typing import Optional
 
 from app.config.logging_config import get_logger
 
@@ -37,8 +36,8 @@ class ImageClassifier:
             'photo' or 'document'.
         """
         try:
-            from PIL import Image
             import numpy as np
+            from PIL import Image
 
             img = Image.open(str(image_path))
             img_array = np.array(img)

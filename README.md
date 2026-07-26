@@ -156,7 +156,7 @@ Daemon en hilo background que revisa Gmail cada 5 minutos via IMAP con OAuth2. D
 | Herramienta | Riesgo | Descripcion |
 |------------|--------|-------------|
 | `search_emails` | Bajo | Buscar emails por remitente, asunto, fecha |
-| `get_email_content` | Baso | Obtener contenido completo de un email |
+| `get_email_content` | Bajo | Obtener contenido completo de un email |
 | `download_attachment` | Alto | Descargar adjunto especifico (requiere confirmacion) |
 | `send_email` | Alto | Enviar email (requiere confirmacion) |
 | `check_and_download_documents` | Medio | Buscar ultimo email no leido y descargar adjuntos |

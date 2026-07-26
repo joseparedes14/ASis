@@ -35,7 +35,8 @@ se procesarán automáticamente y se clasificarán en ASIORGA.
 (ej: "Descargas", "Documentos", "Escritorio").
 
     Args:
-        path: Ruta de la carpeta o nombre conocido (ej: "Descargas" o "C:\\Users\\josem\\Downloads").
+        path: Ruta de la carpeta o nombre conocido
+            (ej: "Descargas" o "C:\\Users\\user\\Downloads").
 
     Returns:
         Mensaje de confirmación o error.

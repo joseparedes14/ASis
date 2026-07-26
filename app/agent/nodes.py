@@ -271,7 +271,7 @@ def route_after_input(state: AgentState) -> str:
     elif user_confirmed is False:
         logger.debug("Routing → generate_response (resume rejected)")
         return "generate_response"
-    
+
     logger.debug("Routing → agent_reasoning (fresh turn)")
     return "agent_reasoning"
 

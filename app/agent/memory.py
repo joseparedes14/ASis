@@ -6,7 +6,7 @@ and an interface for future persistent memory implementations.
 """
 
 from abc import ABC, abstractmethod
-from typing import Any, Optional
+from typing import Optional
 
 from langchain_core.messages import BaseMessage
 

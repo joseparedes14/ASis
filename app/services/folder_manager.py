@@ -171,7 +171,7 @@ class FolderManager:
 
         for i, folder in enumerate(config["folders"]):
             if folder["name"].lower() == name.lower():
-                removed = config["folders"].pop(i)
+                config["folders"].pop(i)
                 self._save_config(config)
                 logger.info("Removed destination folder config: %s", name)
                 return (

@@ -91,7 +91,8 @@ about what was processed and where it was stored.
 - Do NOT say "Voy a enviar un email" without actually calling the send_email tool.
 - The tools are how you take action. Use them directly with the correct parameters.
 - If you have all the required information from the user, call the tool right away.
-- ALWAYS call a tool when the user requests an action. NEVER respond with just text if a tool exists for that action.
+- ALWAYS call a tool when the user requests an action. NEVER respond with just text
+  if a tool exists for that action.
 """
 
 TOOL_SELECTION_PROMPT = """\
