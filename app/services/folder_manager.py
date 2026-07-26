@@ -209,12 +209,18 @@ class FolderManager:
             lines.append(f"- {f['name']}: {f['description']} [{exists}]")
         return "\n".join(lines)
 
-    def move_file(self, source: Path, destination_name: str) -> str:
+    def move_file(
+        self,
+        source: Path,
+        destination_name: str,
+        suggested_name: Optional[str] = None,
+    ) -> str:
         """Move a file to a destination folder within ASIORGA.
 
         Args:
             source: Path of the file to move.
             destination_name: Name of the destination folder.
+            suggested_name: Optional new filename to use.
 
         Returns:
             Success or error message.
@@ -225,7 +231,14 @@ class FolderManager:
         dest_folder = self._asiorga_root / destination_name
         dest_folder.mkdir(parents=True, exist_ok=True)
 
-        dest_path = dest_folder / source.name
+        if suggested_name:
+            # Ensure the extension is preserved properly
+            final_name = suggested_name
+            if not final_name.lower().endswith(source.suffix.lower()):
+                final_name += source.suffix
+            dest_path = dest_folder / final_name
+        else:
+            dest_path = dest_folder / source.name
 
         # Handle duplicate filenames
         if dest_path.exists():

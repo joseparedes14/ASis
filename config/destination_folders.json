@@ -2,28 +2,33 @@
   "folders": [
     {
       "name": "Documentos",
-      "description": "Documentos sin especificacion. Solo emplear si no encaja con ningun otro",
+      "description": "Archivos varios, notas, textos sin sentido, basura, otros, nada en particular, miscelanea",
       "path": "Documentos"
     },
     {
       "name": "Fotos",
-      "description": "Fotografías, paisajes, personas y capturas de pantalla",
+      "description": "Fotografias, imagenes digitales, capturas de pantalla, paisajes, personas, fotos de album, selfies, recuerdos visuales",
       "path": "Fotos"
     },
     {
       "name": "Facturas",
-      "description": "Facturas, recibos, tickets y documentos de compra",
+      "description": "Facturas electronicas, recibos de compra, tickets de tienda, notas de pedido, albaranes de entrega, documentos de compra y venta, IVA, impuestos, comercio",
       "path": "Facturas"
     },
     {
       "name": "Trabajo",
-      "description": "Documentos laborales, informes, presentaciones y proyectos",
+      "description": "Nominas, nomina bruta, retenciones IRPF, seguridad social, salario, sueldo, contratos de trabajo, documentos laborales, informes de trabajo, presentaciones corporativas, proyectos profesionales, reuniones de empresa, clientes",
       "path": "Trabajo"
     },
     {
       "name": "Personal",
-      "description": "Documentos personales, contratos, certificados y trámites",
+      "description": "DNI, NIE, pasaporte, documento nacional de identidad, certificados de nacimiento, certificados de residencia, seguros, declaraciones de la renta, impuestos personales, tramites administrativos, ayuntamiento, registro civil",
       "path": "Personal"
+    },
+    {
+      "name": "Universidad",
+      "description": "Guias docentes, asignaturas, examenes, calificaciones, notas de alumno, matricula, expediente academico, TFG, TFM, PFC, facultad, profesor, apuntes de clase, ejercicios, temario, ECTS, plan de estudios, universidad",
+      "path": "Universidad"
     }
   ]
 }

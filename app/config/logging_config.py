@@ -11,6 +11,35 @@ from pathlib import Path
 from typing import Optional
 
 
+class _Utf8StreamHandler(logging.StreamHandler):
+    """StreamHandler that forces UTF-8 output with replacement for Windows."""
+
+    def __init__(self, stream=None):
+        super().__init__(stream)
+
+    @property
+    def encoding(self):
+        return "utf-8"
+
+    def emit(self, record):
+        try:
+            msg = self.format(record)
+            stream = self.stream
+            stream.write(msg + self.terminator)
+            self.flush()
+        except UnicodeEncodeError:
+            # Fallback: replace unencodable characters
+            try:
+                msg = self.format(record).encode("utf-8", errors="replace").decode("utf-8")
+                stream = self.stream
+                stream.write(msg + self.terminator)
+                self.flush()
+            except Exception:
+                self.handleError(record)
+        except Exception:
+            self.handleError(record)
+
+
 def setup_logging(level: str = "INFO", log_file: Optional[Path] = None) -> logging.Logger:
     """Configure application-wide logging.
 
@@ -36,7 +65,7 @@ def setup_logging(level: str = "INFO", log_file: Optional[Path] = None) -> loggi
         fmt="%(asctime)s │ %(levelname)-8s │ %(name)-20s │ %(message)s",
         datefmt="%H:%M:%S",
     )
-    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler = _Utf8StreamHandler(sys.stdout)
     console_handler.setFormatter(console_formatter)
     logger.addHandler(console_handler)
 

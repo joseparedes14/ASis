@@ -156,10 +156,15 @@ class FolderMonitor:
         return self._extractor
 
     def _get_classifier(self, llm=None):
-        """Lazy-load DocumentClassifier."""
+        """Lazy-load DocumentClassifier and pre-embed folder descriptions."""
         if self._classifier is None:
             from app.services.document_classifier import DocumentClassifier
             self._classifier = DocumentClassifier(llm)
+            # Pre-embed destination folder descriptions for fast classification
+            fm = self._get_folder_manager()
+            folders = fm.list_destinations()
+            if folders:
+                self._classifier.load_folders(folders)
         elif llm is not None:
             self._classifier.set_llm(llm)
         return self._classifier
@@ -323,7 +328,7 @@ class FolderMonitor:
         Extracts content, classifies, and moves to destination folder.
         Runs in a background thread from the debounce timer.
         """
-        logger.info("Processing new file: %s", file_path)
+        logger.info("[MONITOR] Procesando archivo detectado: %s", file_path)
 
         try:
             # Wait a bit for file to finish writing
@@ -357,6 +362,11 @@ class FolderMonitor:
             # Extract content
             extractor = self._get_extractor()
             content = extractor.extract(file_path)
+            logger.info(
+                "[MONITOR] Contenido extraído de %s: %d caracteres",
+                file_path.name,
+                len(content) if content else 0,
+            )
 
             if content is None:
                 content = ""
@@ -367,7 +377,7 @@ class FolderMonitor:
 
             # Classify using LLM (with timeout)
             classifier = self._get_classifier()
-            destination = classifier.classify(
+            classify_result = classifier.classify(
                 content=content,
                 filename=file_path.name,
                 file_type=suffix,
@@ -375,14 +385,26 @@ class FolderMonitor:
                 file_size=f"{file_path.stat().st_size / 1024:.1f} KB",
             )
 
+            if isinstance(classify_result, tuple) and len(classify_result) == 2:
+                destination, suggested_name = classify_result
+            else:
+                destination = classify_result
+                suggested_name = file_path.name
+
             if destination is None:
                 destination = "Documentos"
+                suggested_name = file_path.name
+
+            logger.info(
+                "[MONITOR] Clasificación final: %s → carpeta='%s' | nombre='%s'",
+                file_path.name, destination, suggested_name,
+            )
 
             # Move file to destination
-            result = fm.move_file(file_path, destination)
+            result = fm.move_file(file_path, destination, suggested_name=suggested_name)
 
             self._notifications.put(FileNotification(
-                filename=file_path.name,
+                filename=suggested_name or file_path.name,
                 source_folder=str(file_path.parent),
                 destination_folder=destination,
                 timestamp=datetime.now(),
