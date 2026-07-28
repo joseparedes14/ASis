@@ -222,6 +222,13 @@ class DashboardWidget(QWidget):
         self._expanded = False
         self.setAcceptDrops(False)
 
+        self._response_panel.hide()
+        self._prompt_input.hide()
+        self._quick_actions.hide()
+        self._system_metrics.hide()
+        self._rag_drop.hide()
+        self._header.set_expanded(False)
+
         current_screen = self.screen().geometry()
         x = current_screen.x() + current_screen.width() - EXPANDED_WIDTH - WIDGET_MARGIN
         y = current_screen.y() + WIDGET_MARGIN
@@ -231,17 +238,7 @@ class DashboardWidget(QWidget):
         self._anim.stop()
         self._anim.setStartValue(start_geo)
         self._anim.setEndValue(end_geo)
-        self._anim.finished.connect(self._on_collapse_finished)
         self._anim.start()
-
-    def _on_collapse_finished(self) -> None:
-        self._anim.finished.disconnect(self._on_collapse_finished)
-        self._response_panel.hide()
-        self._prompt_input.hide()
-        self._quick_actions.hide()
-        self._system_metrics.hide()
-        self._rag_drop.hide()
-        self._header.set_expanded(False)
 
     # ── Event Handlers ──────────────────────────────────────────────
 
