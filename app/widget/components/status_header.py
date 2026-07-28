@@ -50,6 +50,7 @@ class StatusHeader(QWidget):
     collapse_clicked = pyqtSignal()
     compact_clicked = pyqtSignal()
     close_clicked = pyqtSignal()
+    minimize_clicked = pyqtSignal()
 
     COMPACT_HEIGHT = COMPACT_SIZE
     EXPANDED_HEIGHT = 48
@@ -118,18 +119,37 @@ class StatusHeader(QWidget):
         """)
         self._close_btn.clicked.connect(self.close_clicked.emit)
 
+        self._minimize_btn = QPushButton("")
+        self._minimize_btn.setFixedSize(14, 14)
+        self._minimize_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._minimize_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {COLORS.warning};
+                border: none;
+                border-radius: 7px;
+            }}
+            QPushButton:hover {{
+                background-color: {COLORS.warning};
+                opacity: 0.7;
+            }}
+        """)
+        self._minimize_btn.clicked.connect(self.minimize_clicked.emit)
+        self._minimize_btn.hide()
+
         self._layout.addWidget(self._icon_label)
         self._layout.addWidget(self._dot)
         self._layout.addWidget(self._name_label)
         self._layout.addStretch()
         self._layout.addWidget(self._status_label)
         self._layout.addWidget(self._model_label)
+        self._layout.addWidget(self._minimize_btn)
         self._layout.addWidget(self._close_btn)
 
         self._compact_widgets = [
             self._name_label,
             self._status_label,
             self._model_label,
+            self._minimize_btn,
             self._close_btn,
         ]
 

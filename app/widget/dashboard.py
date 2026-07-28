@@ -168,6 +168,7 @@ class DashboardWidget(QWidget):
         self._header.compact_clicked.connect(self.expand)
         self._header.drag_requested.connect(self._on_drag)
         self._header.close_clicked.connect(self.close)
+        self._header.minimize_clicked.connect(self.collapse)
 
         self._prompt_input.message_sent.connect(self._on_send_message)
 
@@ -204,9 +205,9 @@ class DashboardWidget(QWidget):
         self._rag_drop.show()
         self._header.set_expanded(True)
 
-        screen = QApplication.primaryScreen().geometry()
-        x = screen.width() - EXPANDED_WIDTH - WIDGET_MARGIN
-        y = WIDGET_MARGIN
+        current_screen = self.screen().geometry()
+        x = current_screen.x() + current_screen.width() - EXPANDED_WIDTH - WIDGET_MARGIN
+        y = current_screen.y() + WIDGET_MARGIN
         start_geo = self.geometry()
         end_geo = QRect(x, y, EXPANDED_WIDTH, EXPANDED_HEIGHT)
 
@@ -221,9 +222,9 @@ class DashboardWidget(QWidget):
         self._expanded = False
         self.setAcceptDrops(False)
 
-        screen = QApplication.primaryScreen().geometry()
-        x = screen.width() - COMPACT_SIZE - WIDGET_MARGIN
-        y = WIDGET_MARGIN
+        current_screen = self.screen().geometry()
+        x = current_screen.x() + current_screen.width() - EXPANDED_WIDTH - WIDGET_MARGIN
+        y = current_screen.y() + WIDGET_MARGIN
         start_geo = self.geometry()
         end_geo = QRect(x, y, COMPACT_SIZE, COMPACT_SIZE)
 
