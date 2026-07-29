@@ -26,6 +26,18 @@ def main() -> None:
     log_file = Path("data/logs/widget.log")
     setup_logging(level="INFO", log_file=log_file)
 
+    # Habilitar DPI awareness per-monitor antes de crear QApplication
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            ctypes.windll.shcore.SetProcessDpiAwareness(2)
+        except Exception:
+            try:
+                import ctypes
+                ctypes.windll.user32.SetProcessDPIAware()
+            except Exception:
+                pass
+
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
 

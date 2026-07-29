@@ -18,7 +18,7 @@ from PyQt6.QtCore import (
     QTimer,
     pyqtSignal,
 )
-from PyQt6.QtGui import QColor, QPainter, QPainterPath
+from PyQt6.QtGui import QColor, QPainter, QPainterPath, QScreen
 from PyQt6.QtWidgets import QApplication, QVBoxLayout, QWidget
 
 from app.services.email_monitor import EmailMonitor
@@ -69,6 +69,7 @@ class DashboardWidget(QWidget):
         super().__init__()
         self._expanded = False
         self._drag_pos = None
+        self._current_screen: QScreen | None = None
         self._confirm_event = threading.Event()
         self._confirm_result = False
         self._agent = AgentBridge(
@@ -112,8 +113,9 @@ class DashboardWidget(QWidget):
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
 
-        screen = QApplication.primaryScreen().geometry()
-        x = screen.width() - EXPANDED_WIDTH - WIDGET_MARGIN
+        primary = QApplication.primaryScreen()
+        screen_geo = primary.geometry() if primary else QRect(0, 0, 1920, 1080)
+        x = screen_geo.width() - COMPACT_SIZE - WIDGET_MARGIN
         y = WIDGET_MARGIN
         self.setGeometry(x, y, COMPACT_SIZE, COMPACT_SIZE)
 
@@ -205,11 +207,13 @@ class DashboardWidget(QWidget):
         self._rag_drop.show()
         self._header.set_expanded(True)
 
-        current_screen = self.screen().geometry()
-        x = current_screen.x() + current_screen.width() - EXPANDED_WIDTH - WIDGET_MARGIN
-        y = current_screen.y() + WIDGET_MARGIN
+        screen = self.screen()
+        screen_geo = screen.geometry() if screen else QApplication.primaryScreen().geometry()
+        expand_w, expand_h = self._dpi_size(EXPANDED_WIDTH, EXPANDED_HEIGHT)
+        x = screen_geo.x() + screen_geo.width() - expand_w - WIDGET_MARGIN
+        y = screen_geo.y() + WIDGET_MARGIN
         start_geo = self.geometry()
-        end_geo = QRect(x, y, EXPANDED_WIDTH, EXPANDED_HEIGHT)
+        end_geo = QRect(x, y, expand_w, expand_h)
 
         self._anim.stop()
         self._anim.setStartValue(start_geo)
@@ -229,9 +233,11 @@ class DashboardWidget(QWidget):
         self._rag_drop.hide()
         self._header.set_expanded(False)
 
-        current_screen = self.screen().geometry()
-        x = current_screen.x() + current_screen.width() - EXPANDED_WIDTH - WIDGET_MARGIN
-        y = current_screen.y() + WIDGET_MARGIN
+        screen = self.screen()
+        screen_geo = screen.geometry() if screen else QApplication.primaryScreen().geometry()
+        expand_w, _ = self._dpi_size(EXPANDED_WIDTH, EXPANDED_HEIGHT)
+        x = screen_geo.x() + screen_geo.width() - expand_w - WIDGET_MARGIN
+        y = screen_geo.y() + WIDGET_MARGIN
         start_geo = self.geometry()
         end_geo = QRect(x, y, COMPACT_SIZE, COMPACT_SIZE)
 
@@ -273,6 +279,7 @@ class DashboardWidget(QWidget):
 
     def showEvent(self, event) -> None:  # noqa: N802
         super().showEvent(event)
+        self._current_screen = self.screen()
         if sys.platform == "win32":
             try:
                 enable_blur_behind(self)
@@ -297,6 +304,40 @@ class DashboardWidget(QWidget):
 
     def mouseReleaseEvent(self, event) -> None:  # noqa: N802
         self._drag_pos = None
+
+    def moveEvent(self, event) -> None:  # noqa: N802
+        super().moveEvent(event)
+        new_screen = self.screen()
+        if new_screen is not None and new_screen != self._current_screen:
+            old_screen = self._current_screen
+            self._current_screen = new_screen
+            self._anim.stop()
+            self._reposition_for_screen(new_screen)
+            logger.debug(
+                "Screen changed: %s → %s (DPI: %.0f → %.0f)",
+                old_screen.name() if old_screen else "?",
+                new_screen.name(),
+                old_screen.logicalDotsPerInch() if old_screen else 96,
+                new_screen.logicalDotsPerInch(),
+            )
+
+    def _reposition_for_screen(self, screen: QScreen) -> None:
+        sg = screen.geometry()
+        if self._expanded:
+            w, h = self._dpi_size(EXPANDED_WIDTH, EXPANDED_HEIGHT)
+        else:
+            w, h = COMPACT_SIZE, COMPACT_SIZE
+        x = sg.x() + sg.width() - w - WIDGET_MARGIN
+        y = sg.y() + WIDGET_MARGIN
+        self.setGeometry(x, y, w, h)
+
+    def _dpi_size(self, width: int, height: int) -> tuple[int, int]:
+        screen = self.screen()
+        if screen is None:
+            return width, height
+        dpi = screen.logicalDotsPerInch()
+        scale = dpi / 96.0
+        return max(COMPACT_SIZE, round(width * scale)), max(COMPACT_SIZE, round(height * scale))
 
     def keyPressEvent(self, event) -> None:  # noqa: N802
         if event.key() == Qt.Key.Key_Escape and self._expanded:
