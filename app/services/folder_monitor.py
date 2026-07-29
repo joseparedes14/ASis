@@ -337,7 +337,7 @@ class FolderMonitor:
             fm = self._get_folder_manager()
             folders = fm.list_destinations()
 
-            all_active_files: set[str] = set()
+            active_basenames: set[str] = set()
 
             for folder in folders:
                 folder_name = folder["name"]
@@ -350,7 +350,7 @@ class FolderMonitor:
                         continue
 
                     file_path_str = str(file_path)
-                    all_active_files.add(file_path_str)
+                    active_basenames.add(file_path.name)
 
                     result = log.record_correction(file_path_str, folder_name)
                     if result is not None:
@@ -377,14 +377,13 @@ class FolderMonitor:
                                     )
 
             # --- Deletion detection ---
-            orphaned = log.get_orphaned_entries(all_active_files)
+            orphaned = log.get_orphaned_entries(active_basenames)
             for file_path_str, predicted_folder, summary, filename in orphaned:
                 deletions += 1
                 logger.info("[MONITOR] Archivo eliminado detectado: %s", filename)
                 if summary:
                     self._remove_seed_text(predicted_folder, summary, source_name="eliminacion")
-                classifier = self._get_classifier()
-                if summary:
+                    classifier = self._get_classifier()
                     emb = classifier.get_document_embedding(summary, summary=summary)
                     if emb is not None:
                         classifier.update_folder_centroid(predicted_folder, emb, remove=True)

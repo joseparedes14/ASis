@@ -317,8 +317,13 @@ class ClassificationLog:
             logger.warning("[LOG] Error registrando correccion: %s", e)
             return None
 
-    def get_orphaned_entries(self, active_files: set[str]) -> list[tuple[str, str, str, str]]:
-        """Find log entries whose file no longer exists on disk.
+    def get_orphaned_entries(
+        self, active_basenames: set[str],
+    ) -> list[tuple[str, str, str, str]]:
+        """Find log entries whose file no longer exists in any ASIORGA folder.
+
+        Marks found entries as deleted so they are not returned again.
+        Only processes entries not already corrected or deleted.
 
         Returns:
             List of (file_path, predicted_folder, summary, filename) tuples.
@@ -327,20 +332,34 @@ class ClassificationLog:
         try:
             if not self._log_file.exists():
                 return entries
+            rows: list[list[str]] = []
             with open(self._log_file, "r", newline="", encoding="utf-8") as f:
                 reader = csv.reader(f)
-                next(reader, None)
+                header = next(reader, None)
+                if header:
+                    rows.append(header)
                 for row in reader:
                     if len(row) < 4:
+                        rows.append(row)
                         continue
                     if row[9]:
+                        rows.append(row)
                         continue
-                    log_path = row[2]
-                    if log_path and log_path not in active_files:
-                        predicted = row[3]
+                    log_basename = Path(row[2]).name if row[2] else ""
+                    log_filename = row[1] if len(row) > 1 else ""
+                    still_active = (
+                        (log_basename in active_basenames)
+                        or (log_filename in active_basenames)
+                    )
+                    if not still_active:
+                        row[9] = "Deletion"
                         summary = row[11] if len(row) > 11 else ""
                         filename = row[1]
-                        entries.append((log_path, predicted, summary, filename))
+                        entries.append((row[2], row[3], summary, filename))
+                    rows.append(row)
+            with open(self._log_file, "w", newline="", encoding="utf-8") as f:
+                writer = csv.writer(f)
+                writer.writerows(rows)
             return entries
         except Exception as e:
             logger.warning("[LOG] Error buscando entradas huerfanas: %s", e)

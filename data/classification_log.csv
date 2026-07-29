@@ -1,0 +1,62 @@
+timestamp,filename,file_path,predicted_folder,confidence,threshold,gap,method,scores_json,success,corrected_folder,summary
+2026-07-29T16:04:54.851724,Der_Beschwerdebrief_1.pdf,C:\Users\josem\Downloads\Der Beschwerdebrief (1).pdf,Documentos,0.2000,0.3500,0.0000,fallback,{},False,Universidad,
+2026-07-29T16:09:38.902802,vacaciones.jpg,vacaciones.jpg,Fotos,0.9500,0.3500,0.0000,image,"{""Fotos"": 1.0}",,,
+2026-07-29T16:09:39.770388,test.pdf,test.pdf,Documentos,0.2000,0.3500,0.0000,fallback,{},,,
+2026-07-29T16:09:47.454481,doc.pdf,doc.pdf,Facturas,0.5000,0.3500,0.0000,keyword,"{""Facturas"": 1.0}",,,"Here is the analysis of the document:
+
+**Document Type:** Invoice (specifically an electronic invoice)
+
+**Main Topic:** Payment for goods or services provided by Suministros SL to a customer.
+
+**Key Entities:**
+
+* **Proveedor (Supplier):** Suministros SL
+* **NIF/CIF (Tax ID/Company ID):** B-12345678
+* **Fecha de emisión (Date of issue):** 15/03/2024
+
+**Classification Summary:** This is an electronic invoice for a payment of €1,452.00 to Suministros SL, including a 21% VAT charge on a base amount of €1,200.00. The invoice was issued on March 15, 2024, and features a tax ID number B-12345678."
+2026-07-29T16:09:54.296460,test.pdf,test.pdf,Personal,0.1705,0.3500,0.0229,embedding,"{""Facturas"": 0.2796281576156616, ""Trabajo"": 0.19113188982009888, ""Universidad"": 0.3602232038974762, ""Personal"": 0.3831072449684143}",,,"Based on the provided document text ""contenido de prueba generico"", I can extract the following information:
+
+**Document Type:** Test/Exam content
+**Main Topic:** Generic test or exam content (no specific topic is mentioned)
+**Key Entities:** None, as there are no names, IDs, subjects, or amounts mentioned in the document.
+
+Here's a concise classification summary:
+This document appears to be a generic template for creating tests or exams, with no specific subject matter or details provided. It does not contain any key entities such as names, IDs, or financial information. The purpose of this document is likely to serve as a starting point for creating customized test content."
+2026-07-29T16:11:49.587834,Tema_3_Clustering.pdf,C:\Users\josem\Downloads\Tema 3. Clustering.pdf,Documentos,0.2000,0.3500,0.0000,fallback,{},False,Universidad,"Here is the analysis of the document:
+
+**Document Type:** Report/ Lecture Notes ( likely from a Machine Learning or Data Science course)
+
+**Main Topic:** Clustering in Unsupervised Learning (specifically, introducing the concept of clustering and its techniques)
+
+**Key Entities:**
+
+* None mentioned by name or ID
+* Concepts: Clustering, Similarity, Distance, Z-score, Normalization
+
+Here is a concise classification summary:
+
+This document appears to be a lecture note or report on Unsupervised Learning, specifically focusing on the concept of Clustering. It introduces the idea of clustering as a technique for organizing data into groups based on similarity and provides an overview of key concepts such as distance, similarity, and normalization."
+2026-07-29T16:19:32.850619,vacaciones.jpg,vacaciones.jpg,Fotos,0.9500,0.3500,0.0000,image,"{""Fotos"": 1.0}",,,
+2026-07-29T16:19:33.674180,test.pdf,test.pdf,Documentos,0.2000,0.3500,0.0000,fallback,{},,,
+2026-07-29T16:19:41.335200,doc.pdf,doc.pdf,Facturas,0.5000,0.3500,0.0000,keyword,"{""Facturas"": 1.0}",,,"Here is the analysis of the document:
+
+**Document Type:** Invoice (specifically an electronic invoice)
+
+**Main Topic:** Payment for goods or services provided by Suministros SL to a customer.
+
+**Key Entities:**
+
+* **Proveedor (Supplier):** Suministros SL
+* **NIF/CIF (Tax ID/Company ID):** B-12345678
+* **Fecha de emisión (Date of issue):** 15/03/2024
+
+**Classification Summary:** This is an electronic invoice for a payment of €1,452.00 to Suministros SL, including a 21% VAT charge on a base amount of €1,200.00. The invoice was issued on March 15, 2024, and features a tax ID number B-12345678."
+2026-07-29T16:19:48.173672,test.pdf,test.pdf,Personal,0.1705,0.3500,0.0229,embedding,"{""Facturas"": 0.2796281576156616, ""Trabajo"": 0.19113188982009888, ""Universidad"": 0.3602232038974762, ""Personal"": 0.3831072449684143}",,,"Based on the provided document text ""contenido de prueba generico"", I can extract the following information:
+
+**Document Type:** Test/Exam content
+**Main Topic:** Generic test or exam content (no specific topic is mentioned)
+**Key Entities:** None, as there are no names, IDs, subjects, or amounts mentioned in the document.
+
+Here's a concise classification summary:
+This document appears to be a generic template for creating tests or exams, with no specific subject matter or details provided. It does not contain any key entities such as names, IDs, or financial information. The purpose of this document is likely to serve as a starting point for creating customized test content."
