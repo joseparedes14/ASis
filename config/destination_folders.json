@@ -88,9 +88,7 @@
         "plan de estudios con creditos ECTS",
         "PRÁCTICA 2: MONGODB (SESION 1)",
         "PROGRAMACIÓN DE CLIENTES Y SERVIDORES REST",
-        "Métricas de CLASIFICACIÓN Y REGRESIÓN",
-        "Sehr geehrte Damen und Herren,",
-        "Here is the analysis of the document:\n\n**Document Type:** Report/ Lecture Notes ( likely from a Machine Learning or Data Science course)\n\n**Main Topic:** Clustering in Unsupervised Learning (specifically, introducing the concept of clustering and its techniques)\n\n**Key Entities:**\n\n* None mentioned by name or ID\n* Concepts: Clustering, Similarity, Distance, Z-score, Normalization\n\nHere is a concise classification summary:\n\nThis document appears to be a lecture note or report on Unsupervised Learning, specifically focusing on the concept of Clustering. It introduces the idea of clustering as a technique for organizing data into groups based on similarity and provides an overview of key concepts such as distance, similarity, and normalization."
+        "Métricas de CLASIFICACIÓN Y REGRESIÓN"
       ]
     }
   ]

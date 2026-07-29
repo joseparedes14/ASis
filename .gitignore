@@ -46,6 +46,7 @@ data/attachments/
 data/logs/
 data/memory/
 data/*.json
+data/*.npy
 data/*.log
 data/.downloaded_emails.txt
 *.log

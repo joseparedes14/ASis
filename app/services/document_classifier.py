@@ -21,12 +21,10 @@ _EMBED_DIM = 384
 _DEFAULT_THRESHOLD = 0.35
 _MIN_GAP = 0.01
 _SUMMARY_MODEL = "llama3.1:8b"
-_SUMMARY_PROMPT = """Analyze this document start. Extract:
-- Document type (e.g., invoice, exam, contract, report)
-- Main topic (be specific)
-- Key entities (names, IDs, subjects, amounts)
-
-Return a concise classification summary in 2–3 sentences.
+_SUMMARY_PROMPT = """Extract: document type, main topic, key entities.
+Return ONLY the raw summary in the SAME LANGUAGE as the document.
+No greetings, introductions, explanations or meta-text of any kind.
+Just the facts.
 
 Document text:
 {text}"""
@@ -590,12 +588,27 @@ class DocumentClassifier:
         try:
             response = self._summary_llm.invoke([HumanMessage(content=prompt)])
             summary = (response.content or "").strip()
+            summary = self._clean_summary(summary)
             if len(summary) >= 20:
                 return summary
             return None
         except Exception as e:
             logger.warning("[CLASSIFY] Error extrayendo resumen: %s", e)
             return None
+
+    @staticmethod
+    def _clean_summary(text: str) -> str:
+        text = re.sub(
+            r"^(?:here\s+is|here'?s|based\s+on|i\s+(?:think|believe|would\s+say)"
+            r"|this\s+(?:appears|seems|looks\s+like|document|text)"
+            r"|the\s+(?:document|text|content|following)"
+            r"|analizando|a\s+continuaci[óo]n|te\s+presento|te\s+muestro"
+            r"|resumen|summary|classification|an[áa]lisis)"
+            r"[\s,:;.!-]*",
+            "", text, flags=re.I,
+        ).strip()
+        text = re.sub(r"\s+", " ", text).strip()
+        return text
 
     def get_document_embedding(
         self, content: str, summary: Optional[str] = None,
