@@ -735,6 +735,8 @@ class DocumentClassifier:
             filename, len(content or ""), log_path,
         )
 
+        summary = self._extract_classification_summary(content) or ""
+
         if file_type in {".jpg", ".jpeg", ".png", ".gif", ".bmp"}:
             suggested = self._suggest_name(filename, content, "Fotos")
             result = ClassificationResult(
@@ -746,12 +748,11 @@ class DocumentClassifier:
                 gap=0.0,
                 threshold_used=self._threshold,
                 all_scores_raw={"Fotos": 1.0},
+                summary=summary,
             )
             self._log.log(result, file_path=log_path)
             logger.info("[CLASSIFY] %s -> Fotos (imagen)", filename)
             return result
-
-        summary = self._extract_classification_summary(content) or ""
 
         kw_folder, kw_suggested = self._classify_by_keywords(filename, content)
         if kw_folder != DEFAULT_FOLDER:
@@ -856,6 +857,7 @@ class DocumentClassifier:
             gap=0.0,
             threshold_used=self._threshold,
             all_scores_raw={},
+            summary=summary,
         )
         self._log.log(result, file_path=log_path)
         return result
