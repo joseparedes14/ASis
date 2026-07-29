@@ -3,32 +3,94 @@
     {
       "name": "Documentos",
       "description": "Archivos varios, notas, textos sin sentido, basura, otros, nada en particular, miscelanea",
-      "path": "Documentos"
+      "path": "Documentos",
+      "seed_texts": [
+        "notas rapidas sin categoria",
+        "archivo generico sin clasificar",
+        "texto variado sin proposito claro",
+        "documento miscellaneous",
+        "notas personales variadas",
+        "contenido sin tema definido",
+        "archivo pendiente de organizar"
+      ]
     },
     {
       "name": "Fotos",
       "description": "Fotografias, imagenes digitales, capturas de pantalla, paisajes, personas, fotos de album, selfies, recuerdos visuales",
-      "path": "Fotos"
+      "path": "Fotos",
+      "seed_texts": [
+        "fotografia digital de alta resolucion",
+        "captura de pantalla de escritorio",
+        "imagen de paisaje natural",
+        "selfie o foto de persona",
+        "imagen de album fotografico",
+        "foto de recuerdo familiar",
+        "imagen de vacaciones y viajes"
+      ]
     },
     {
       "name": "Facturas",
       "description": "Facturas electronicas, recibos de compra, tickets de tienda, notas de pedido, albaranes de entrega, documentos de compra y venta, IVA, impuestos, comercio",
-      "path": "Facturas"
+      "path": "Facturas",
+      "seed_texts": [
+        "factura electronica con desglose de IVA",
+        "recibo de compra con base imponible",
+        "ticket de tienda con total a pagar",
+        "albaran de entrega de mercancia",
+        "nota de pedido con importe total",
+        "documento de compraventa con datos fiscales",
+        "factura proforma para cliente",
+        "extracto de transaccion comercial"
+      ]
     },
     {
       "name": "Trabajo",
       "description": "Nominas, nomina bruta, retenciones IRPF, seguridad social, salario, sueldo, contratos de trabajo, documentos laborales, informes de trabajo, presentaciones corporativas, proyectos profesionales, reuniones de empresa, clientes",
-      "path": "Trabajo"
+      "path": "Trabajo",
+      "seed_texts": [
+        "nomina mensual con retenciones IRPF",
+        "contrato laboral con salario base",
+        "informe de reunion de empresa",
+        "presentacion corporativa de proyecto",
+        "propuesta comercial para cliente",
+        "presupuesto de servicios profesionales",
+        "memoria anual de resultados",
+        "documento de seguridad social"
+      ]
     },
     {
       "name": "Personal",
       "description": "DNI, NIE, pasaporte, documento nacional de identidad, certificados de nacimiento, certificados de residencia, seguros, declaraciones de la renta, impuestos personales, tramites administrativos, ayuntamiento, registro civil",
-      "path": "Personal"
+      "path": "Personal",
+      "seed_texts": [
+        "documento nacional de identidad DNI",
+        "certificado de empadronamiento municipal",
+        "declaracion de la renta anual",
+        "poliza de seguro de hogar",
+        "certificado de nacimiento del registro civil",
+        "tramite administrativo del ayuntamiento",
+        "pasaporte en tramite",
+        "documento de hacienda y tributos"
+      ]
     },
     {
       "name": "Universidad",
       "description": "Guias docentes, asignaturas, examenes, calificaciones, notas de alumno, matricula, expediente academico, TFG, TFM, PFC, facultad, profesor, apuntes de clase, ejercicios, temario, ECTS, plan de estudios, universidad",
-      "path": "Universidad"
+      "path": "Universidad",
+      "seed_texts": [
+        "guia docente de asignatura universitaria",
+        "examen parcial con preguntas y respuestas",
+        "calificaciones de expediente academico",
+        "matricula en grado universitario",
+        "trabajo de fin de grado TFG",
+        "apuntes de clase de asignatura",
+        "temario oficial de la facultad",
+        "plan de estudios con creditos ECTS",
+        "PRÁCTICA 2: MONGODB (SESION 1)",
+        "PROGRAMACIÓN DE CLIENTES Y SERVIDORES REST",
+        "Métricas de CLASIFICACIÓN Y REGRESIÓN",
+        "Sehr geehrte Damen und Herren,"
+      ]
     }
   ]
 }

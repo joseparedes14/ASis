@@ -92,18 +92,16 @@ class DocumentExtractor:
             return None
 
     def _extract_pdf(self, file_path: Path) -> str:
-        """Extract text from PDF using pymupdf."""
-        import pymupdf
+        """Extract text from PDF using LangChain's PyMuPDFLoader."""
+        from langchain_community.document_loaders import PyMuPDFLoader
 
-        doc = pymupdf.open(str(file_path))
+        loader = PyMuPDFLoader(str(file_path))
+        docs = loader.load()
         text_parts = []
-
-        for i, page in enumerate(doc):
-            page_text = page.get_text()
-            if page_text.strip():
-                text_parts.append(f"[Página {i + 1}]\n{page_text}")
-
-        doc.close()
+        for doc in docs:
+            text = doc.page_content.strip()
+            if text:
+                text_parts.append(text)
         return "\n\n".join(text_parts) if text_parts else ""
 
     def _extract_docx(self, file_path: Path) -> str:

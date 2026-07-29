@@ -7,6 +7,7 @@ OAuth2 credentials used by both SMTP (sending) and IMAP (reading) services.
 
 from pathlib import Path
 
+from google.auth.exceptions import RefreshError
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -43,10 +44,14 @@ def load_oauth_credentials(settings: Settings) -> Credentials:
         logger.debug("Loaded existing token from %s", token_path)
 
     if creds and creds.expired and creds.refresh_token:
-        logger.info("Refreshing expired access token...")
-        creds.refresh(Request())
-        _save_token(creds, token_path)
-        logger.info("Access token refreshed successfully")
+        try:
+            logger.info("Refreshing expired access token...")
+            creds.refresh(Request())
+            _save_token(creds, token_path)
+            logger.info("Access token refreshed successfully")
+        except RefreshError as e:
+            logger.warning("Refresh token expired or revoked: %s — re-authenticating", e)
+            creds = None
 
     if not creds or not creds.valid:
         creds = _perform_authorization_flow(settings, token_path)

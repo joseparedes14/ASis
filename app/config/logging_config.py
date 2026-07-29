@@ -23,19 +23,13 @@ class _Utf8StreamHandler(logging.StreamHandler):
 
     def emit(self, record):
         try:
-            msg = self.format(record)
+            msg = self.format(record) + self.terminator
             stream = self.stream
-            stream.write(msg + self.terminator)
+            if hasattr(stream, 'buffer'):
+                stream.buffer.write(msg.encode("utf-8"))
+            else:
+                stream.write(msg)
             self.flush()
-        except UnicodeEncodeError:
-            # Fallback: replace unencodable characters
-            try:
-                msg = self.format(record).encode("utf-8", errors="replace").decode("utf-8")
-                stream = self.stream
-                stream.write(msg + self.terminator)
-                self.flush()
-            except Exception:
-                self.handleError(record)
         except Exception:
             self.handleError(record)
 

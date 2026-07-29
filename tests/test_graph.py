@@ -1,6 +1,6 @@
 """Tests for the agent graph construction and state management."""
 
-from app.agent.state import AgentState, MAX_ITERATIONS, create_initial_state
+from app.agent.state import MAX_ITERATIONS, create_initial_state
 
 
 class TestAgentState:

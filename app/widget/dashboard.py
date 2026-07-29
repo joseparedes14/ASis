@@ -63,7 +63,9 @@ class DashboardWidget(QWidget):
     _sig_status = pyqtSignal(object, str)
     _sig_input_enabled = pyqtSignal(bool)
     _sig_confirmation = pyqtSignal(list)
-    _sig_folder_notification = pyqtSignal(str, str, str)  # filename, source, destination
+    _sig_folder_notification = pyqtSignal(
+        str, str, str, float, str
+    )  # filename, source, destination, confidence, method
 
     def __init__(self) -> None:
         super().__init__()
@@ -546,14 +548,17 @@ class DashboardWidget(QWidget):
                     notif.filename,
                     notif.source_folder,
                     notif.destination_folder,
+                    getattr(notif, "confidence", 0.0),
+                    getattr(notif, "method", "unknown"),
                 )
         except Exception as e:
             logger.error("Error checking folder notifications: %s", e)
 
-    def _on_folder_notification(self, filename: str, source: str, destination: str) -> None:
+    def _on_folder_notification(
+        self, filename: str, source: str, destination: str,
+        confidence: float = 0.0, method: str = "unknown",
+    ) -> None:
         """Display a folder monitoring notification in the response panel."""
-        if destination == "ERROR":
-            msg = f"❌ Error al procesar **{filename}**"
-        else:
-            msg = f"📁 **{filename}** clasificado → **ASIorga/{destination}**"
-        self._response_panel.add_system_message(msg)
+        self._response_panel.add_classification_notification(
+            filename, source, destination, confidence, method,
+        )

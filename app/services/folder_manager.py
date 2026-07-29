@@ -123,12 +123,15 @@ class FolderManager:
 
         return None
 
-    def create_destination(self, name: str, description: str) -> str:
+    def create_destination(
+        self, name: str, description: str, seed_texts: Optional[list[str]] = None
+    ) -> str:
         """Create a new destination folder in ASIORGA.
 
         Args:
             name: Name of the folder.
             description: Description of what this folder contains.
+            seed_texts: Optional list of example text snippets for embedding.
 
         Returns:
             Success or error message.
@@ -145,15 +148,53 @@ class FolderManager:
         folder_path.mkdir(parents=True, exist_ok=True)
 
         # Add to config
-        config["folders"].append({
+        entry = {
             "name": name,
             "description": description,
             "path": name,
-        })
+        }
+        if seed_texts:
+            entry["seed_texts"] = seed_texts
+        config["folders"].append(entry)
         self._save_config(config)
+
+        # Invalidate embedding cache so new folder is picked up
+        from app.services.document_classifier import FolderEmbeddingCache
+        FolderEmbeddingCache().invalidate()
 
         logger.info("Created destination folder: %s — %s", name, description)
         return f"Carpeta '{name}' creada en {folder_path}. Descripción: {description}"
+
+    def update_seed_texts(self, name: str, seed_texts: list[str]) -> str:
+        """Update the seed texts for a destination folder.
+
+        Args:
+            name: Name of the folder.
+            seed_texts: New list of seed text snippets.
+
+        Returns:
+            Success or error message.
+        """
+        config = self._load_config()
+        for folder in config["folders"]:
+            if folder["name"].lower() == name.lower():
+                folder["seed_texts"] = seed_texts
+                self._save_config(config)
+
+                from app.services.document_classifier import FolderEmbeddingCache
+                FolderEmbeddingCache().invalidate()
+
+                logger.info("Updated seed_texts for folder: %s (%d textos)", name, len(seed_texts))
+                return (
+                    f"Textos de referencia actualizados para "
+                    f"'{name}' ({len(seed_texts)} textos)."
+                )
+        return f"No se encontró una carpeta destino llamada '{name}'."
+
+    def get_classification_log_stats(self) -> dict:
+        """Get classification accuracy stats from the log."""
+        from app.services.document_classifier import ClassificationLog
+        return ClassificationLog().get_stats()
 
     def delete_destination(self, name: str) -> str:
         """Delete a destination folder from ASIORGA.
@@ -185,7 +226,7 @@ class FolderManager:
         """List all configured destination folders.
 
         Returns:
-            List of folder dicts with name, description, and path.
+            List of folder dicts with name, description, path, and seed_texts.
         """
         config = self._load_config()
         return config.get("folders", [])

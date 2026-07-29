@@ -261,6 +261,42 @@ class ResponsePanel(QWidget):
         self._messages_layout.insertWidget(self._messages_layout.count() - 1, label)
         self._scroll_to_bottom()
 
+    def add_classification_notification(
+        self, filename: str, source: str, destination: str,
+        confidence: float = 0.0, method: str = "unknown",
+    ) -> None:
+        if self._placeholder.isVisible():
+            self._placeholder.hide()
+
+        if confidence < 0.35:
+            icon = "\u26a0\ufe0f"
+        elif method == "image":
+            icon = "\U0001f5bc\ufe0f"
+        else:
+            icon = "\U0001f4c1"
+
+        if confidence > 0:
+            conf_str = f" ({confidence:.0%})"
+        else:
+            conf_str = ""
+
+        if destination == "ERROR":
+            text = f"\u274c Error al procesar **{filename}**"
+        else:
+            text = f"{icon} **{filename}** → **ASIorga/{destination}**{conf_str} [{method}]"
+
+        label = QLabel(text)
+        label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        label.setWordWrap(True)
+        label.setStyleSheet(f"""
+            color: {COLORS.text_muted};
+            font-size: 11px;
+            font-family: {FONT_FAMILY};
+            padding: 4px 12px;
+        """)
+        self._messages_layout.insertWidget(self._messages_layout.count() - 1, label)
+        self._scroll_to_bottom()
+
     def show_thinking(self) -> None:
         self._thinking_label = QLabel("Pensando...")
         self._thinking_label.setStyleSheet(f"""

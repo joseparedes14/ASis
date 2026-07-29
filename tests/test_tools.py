@@ -1,6 +1,6 @@
 """Tests for the tool system — registry, metadata, and tool definitions."""
 
-from app.tools.base import ToolRiskLevel, tool_metadata, requires_user_confirmation
+from app.tools.base import ToolRiskLevel, requires_user_confirmation, tool_metadata
 from app.tools.registry import ToolRegistry
 
 
