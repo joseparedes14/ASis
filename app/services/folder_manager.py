@@ -293,10 +293,10 @@ class FolderManager:
         try:
             shutil.move(str(source), str(dest_path))
             logger.info("Moved %s → %s", source.name, dest_path)
-            return f"Archivo movido a {dest_path}"
+            return f"Archivo movido a {dest_path}", dest_path
         except Exception as e:
             logger.error("Failed to move %s: %s", source, e)
-            return f"Error al mover el archivo: {e}"
+            return f"Error al mover el archivo: {e}", source
 
     def list_folder_contents(self, folder_name: Optional[str] = None) -> str:
         """List contents of a folder within ASIORGA.

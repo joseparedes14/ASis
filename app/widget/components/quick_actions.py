@@ -98,6 +98,14 @@ class QuickActions(QWidget):
 
         self._menu.addSeparator()
 
+        action_rag = QAction("🔍 Consultar ASIORGA", self)
+        action_rag.triggered.connect(
+            lambda: self.action_clicked.emit("query_asiorga")
+        )
+        self._menu.addAction(action_rag)
+
+        self._menu.addSeparator()
+
         action_monitor = QAction("Añadir carpeta a monitorizar", self)
         action_monitor.triggered.connect(self._on_add_monitor_folder)
         self._menu.addAction(action_monitor)

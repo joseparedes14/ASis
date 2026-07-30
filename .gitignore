@@ -49,6 +49,8 @@ data/*.json
 data/*.npy
 data/*.log
 data/.downloaded_emails.txt
+data/rag_index/
+data/classification_log.csv
 *.log
 !data/.gitkeep
 

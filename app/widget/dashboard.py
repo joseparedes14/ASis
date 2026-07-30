@@ -63,6 +63,7 @@ class DashboardWidget(QWidget):
     _sig_status = pyqtSignal(object, str)
     _sig_input_enabled = pyqtSignal(bool)
     _sig_confirmation = pyqtSignal(list)
+    _sig_rag_response = pyqtSignal(str)
     _sig_folder_notification = pyqtSignal(
         str, str, str, float, str
     )  # filename, source, destination, confidence, method
@@ -74,6 +75,7 @@ class DashboardWidget(QWidget):
         self._current_screen: QScreen | None = None
         self._confirm_event = threading.Event()
         self._confirm_result = False
+        self._rag_mode = False
         self._agent = AgentBridge(
             confirmation_handler=self._handle_confirmation
         )
@@ -90,6 +92,7 @@ class DashboardWidget(QWidget):
         self._sig_status.connect(self._on_status_update)
         self._sig_input_enabled.connect(self._on_input_enabled)
         self._sig_confirmation.connect(self._on_confirmation_needed)
+        self._sig_rag_response.connect(self._on_agent_response)
         self._sig_folder_notification.connect(self._on_folder_notification)
 
     def _start_email_monitor(self) -> None:
@@ -184,7 +187,7 @@ class DashboardWidget(QWidget):
 
     def closeEvent(self, event) -> None:  # noqa: N802
         """Clean up resources when the widget is closed."""
-        self._folder_monitor.stop()
+        self._agent.stop_folder_monitor()
         logger.info("Widget closed — folder monitor stopped")
         super().closeEvent(event)
 
@@ -411,6 +414,18 @@ class DashboardWidget(QWidget):
         self.move(x, y)
 
     def _on_send_message(self, text: str) -> None:
+        if self._rag_mode:
+            self._rag_mode = False
+            self._prompt_input._input.setPlaceholderText("Escribe un mensaje...")
+            self._response_panel.add_user_message(text)
+            self._header.update_status(AgentStatus.THINKING, self._agent.model_name)
+            self._prompt_input.set_enabled(False)
+            thread = threading.Thread(
+                target=self._rag_query_worker, args=(text,), daemon=True
+            )
+            thread.start()
+            return
+
         self._response_panel.add_user_message(text)
         self._header.update_status(AgentStatus.THINKING, self._agent.model_name)
         self._prompt_input.set_enabled(False)
@@ -458,6 +473,25 @@ class DashboardWidget(QWidget):
             fm = get_folder_monitor()
             result = fm.add_folder(path)
             self._response_panel.add_system_message(f"📁 {result}")
+        elif action == "query_asiorga":
+            self._rag_mode = True
+            self._response_panel.add_system_message(
+                "🔍 Escribe tu consulta sobre los documentos de ASIORGA:"
+            )
+            self._prompt_input._input.setText("")
+            self._prompt_input._input.setPlaceholderText(
+                "Ej: ¿Cuánto pagué de luz en enero?"
+            )
+            self._prompt_input._input.setFocus()
+
+    def _rag_query_worker(self, query: str) -> None:
+        try:
+            response = self._agent.query_asiorga_rag(query)
+        except Exception as e:
+            response = f"[Error en consulta ASIORGA] {e}"
+        self._sig_input_enabled.emit(True)
+        self._sig_status.emit(AgentStatus.ONLINE, self._agent.model_name)
+        self._sig_rag_response.emit(response)
 
     def _clipboard_worker(self, text: str) -> None:
         try:

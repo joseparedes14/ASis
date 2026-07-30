@@ -381,6 +381,14 @@ class FolderMonitor:
             for file_path_str, predicted_folder, summary, filename in orphaned:
                 deletions += 1
                 logger.info("[MONITOR] Archivo eliminado detectado: %s", filename)
+
+                # Remove from RAG index
+                try:
+                    from app.services.rag_service import get_rag_indexer
+                    get_rag_indexer().remove_file(file_path_str)
+                except Exception as e:
+                    logger.warning("RAG removal failed for %s: %s", filename, e)
+
                 if summary:
                     self._remove_seed_text(predicted_folder, summary, source_name="eliminacion")
                     classifier = self._get_classifier()
@@ -547,9 +555,8 @@ class FolderMonitor:
                 classification = img_class.classify(file_path)
 
                 if classification == "photo":
-                    # Move directly to Fotos
                     fm = self._get_folder_manager()
-                    result = fm.move_file(file_path, "Fotos")
+                    result, dest_path = fm.move_file(file_path, "Fotos")
                     self._notifications.put(FileNotification(
                         filename=file_path.name,
                         source_folder=str(file_path.parent),
@@ -604,13 +611,20 @@ class FolderMonitor:
             )
 
             # Move file to destination
-            result = fm.move_file(file_path, destination, suggested_name=suggested_name)
+            result, dest_path = fm.move_file(file_path, destination, suggested_name=suggested_name)
 
             # Save summary as seed text for future classification
             if classify_result.summary and destination != "Documentos":
                 self._update_seed_texts_from_file(
                     file_path, destination, summary=classify_result.summary,
                 )
+
+            # Auto-index into RAG
+            try:
+                from app.services.rag_service import get_rag_indexer
+                get_rag_indexer().index_new(dest_path)
+            except Exception as e:
+                logger.warning("RAG indexing failed for %s: %s", dest_path.name, e)
 
             self._notifications.put(FileNotification(
                 filename=suggested_name or file_path.name,

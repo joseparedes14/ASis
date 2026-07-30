@@ -49,6 +49,7 @@ onnxruntime>=1.17.0
 huggingface_hub>=0.20.0
 tokenizers>=0.15.0
 numpy>=1.24.0
+faiss-cpu>=1.7.0
 rapidocr-onnxruntime>=1.3.0
 pillow>=10.0.0
 

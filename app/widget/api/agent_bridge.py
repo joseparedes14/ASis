@@ -7,6 +7,7 @@ handles tool confirmations via a callback, and returns responses.
 from __future__ import annotations
 
 import logging
+import threading
 from collections.abc import Callable
 
 from langchain_core.messages import AIMessage, HumanMessage
@@ -16,6 +17,7 @@ from app.agent.state import AgentState, create_initial_state
 from app.config.settings import get_settings
 from app.models.llm import check_ollama_connection
 from app.services.folder_monitor import get_folder_monitor
+from app.services.rag_service import get_rag_indexer
 from app.widget.api.llm_client import AgentStatus
 
 logger = logging.getLogger("asis.widget.agent_bridge")
@@ -46,6 +48,9 @@ class AgentBridge:
         llm = create_llm(self._settings)
         self._folder_monitor.set_llm(llm)
         self._folder_monitor.start()
+
+        # Start RAG indexing in background
+        self._start_rag_indexing()
 
         logger.info(
             "AgentBridge initialized — provider=%s, model=%s",
@@ -107,6 +112,10 @@ class AgentBridge:
     def stop_folder_monitor(self) -> None:
         """Stop the folder monitor on shutdown."""
         self._folder_monitor.stop()
+        try:
+            get_rag_indexer().stop_watcher()
+        except Exception as e:
+            logger.warning("RAG watcher stop failed: %s", e)
 
     @property
     def model_name(self) -> str:
@@ -121,7 +130,39 @@ class AgentBridge:
         self._state = create_initial_state()
         logger.info("Conversation history cleared")
 
+    def query_asiorga_rag(self, query: str) -> str:
+        """Query ASIORGA documents using RAG (FAISS + LLM).
+
+        This bypasses the LangGraph agent and goes directly:
+        embed → FAISS search → context → LLM response.
+        """
+        try:
+            store = get_rag_indexer()._store
+            return store.query(query)
+        except Exception as e:
+            logger.error("RAG query failed: %s", e, exc_info=True)
+            return f"[Error en la consulta RAG] {e}"
+
     # ── Private ──────────────────────────────────────────────────────
+
+    def _start_rag_indexing(self) -> None:
+        """Build or sync the RAG index, then start watchdog on ASIORGA folders."""
+        def _build():
+            try:
+                indexer = get_rag_indexer()
+                if indexer._store.is_empty:
+                    logger.info("Building RAG index from ASIORGA folders...")
+                else:
+                    logger.info(
+                        "Syncing RAG index (%d existing vectors)...",
+                        indexer._store.total_vectors,
+                    )
+                indexer.index_all()
+                indexer.start_watcher()
+            except Exception as e:
+                logger.warning("RAG indexing deferred: %s", e)
+
+        threading.Thread(target=_build, daemon=True).start()
 
     def _run_graph(self, state: AgentState) -> AgentState | None:
         """Stream through the graph, asking the user for confirmation
