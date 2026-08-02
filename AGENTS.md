@@ -84,6 +84,17 @@ Usa el formato Conventional Commits:
 
 Ejemplo: `feat: add Gmail SMTP OAuth2 email sending tool`
 
+### 6. Push a la rama remota
+
+**SIEMPRE** haz push a la rama remota con el **mismo nombre** que la rama local actual:
+
+```bash
+git branch --show-current
+git push -u origin <nombre-de-la-rama-local>
+```
+
+Nunca hagas push a `main` ni a una rama con nombre distinto a la local, salvo que el usuario lo indique explícitamente.
+
 ---
 
 ## Archivos que NUNCA se deben commitear
