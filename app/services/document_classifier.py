@@ -332,9 +332,15 @@ class ClassificationLog:
         normalized/token-based fallbacks so manual moves keep being detected
         even when the file was renamed.
 
+        Handles re-corrections: rows already marked as corrected
+        (success == "False") are candidates again. When the file moves back to
+        its originally predicted folder the row is reset to pending (undo);
+        otherwise it is re-marked with the new corrected folder.
+
         Returns:
-            (predicted_folder, summary) tuple if a correction was recorded,
-            or None if no correction was needed.
+            (source_folder, summary) tuple if a correction was recorded, where
+            source_folder is the folder in which the file's exemplar currently
+            lives; or None if no correction was needed.
         """
         try:
             if not self._log_file.exists():
@@ -352,7 +358,7 @@ class ClassificationLog:
                     rows.append(header)
                 for row in reader:
                     rows.append(row)
-                    if len(row) >= 11 and not row[9]:
+                    if len(row) >= 11 and row[9] in ("", "False"):
                         candidates.append(row)
 
             def _matches(row: list[str], token_fallback: bool) -> bool:
@@ -380,11 +386,15 @@ class ClassificationLog:
             for row in candidates:
                 if _matches(row, token_fallback=False):
                     found_exact = True
-                    predicted = row[3]
-                    if predicted != corrected_folder:
-                        row[9] = "False"
-                        row[10] = corrected_folder
-                        predicted_folder = predicted
+                    source = row[10] if row[9] == "False" else row[3]
+                    if source != corrected_folder:
+                        if row[9] == "False" and corrected_folder == row[3]:
+                            row[9] = ""
+                            row[10] = ""
+                        else:
+                            row[9] = "False"
+                            row[10] = corrected_folder
+                        predicted_folder = source
                         summary = row[11] if len(row) > 11 else ""
 
             # Pass 2: token-based fallback for renamed files, only if nothing
@@ -392,11 +402,15 @@ class ClassificationLog:
             if predicted_folder is None and not found_exact:
                 for row in candidates:
                     if _matches(row, token_fallback=True):
-                        predicted = row[3]
-                        if predicted != corrected_folder:
-                            row[9] = "False"
-                            row[10] = corrected_folder
-                            predicted_folder = predicted
+                        source = row[10] if row[9] == "False" else row[3]
+                        if source != corrected_folder:
+                            if row[9] == "False" and corrected_folder == row[3]:
+                                row[9] = ""
+                                row[10] = ""
+                            else:
+                                row[9] = "False"
+                                row[10] = corrected_folder
+                            predicted_folder = source
                             summary = row[11] if len(row) > 11 else ""
                         break
 
@@ -417,10 +431,12 @@ class ClassificationLog:
         """Find log entries whose file no longer exists in any ASIORGA folder.
 
         Marks found entries as deleted so they are not returned again.
-        Only processes entries not already corrected or deleted.
+        Processes pending entries and previously corrected ones; for corrected
+        entries the exemplar lives in the corrected folder (column 10).
 
         Returns:
-            List of (file_path, predicted_folder, summary, filename) tuples.
+            List of (file_path, source_folder, summary, filename) tuples,
+            where source_folder holds the file's exemplar.
         """
         entries: list[tuple[str, str, str, str]] = []
         try:
@@ -436,7 +452,7 @@ class ClassificationLog:
                     if len(row) < 4:
                         rows.append(row)
                         continue
-                    if row[9]:
+                    if len(row) < 11 or row[9] not in ("", "False"):
                         rows.append(row)
                         continue
                     log_basename = Path(row[2]).name if row[2] else ""
@@ -446,10 +462,11 @@ class ClassificationLog:
                         or (log_filename in active_basenames)
                     )
                     if not still_active:
+                        source = row[10] if row[9] == "False" else row[3]
                         row[9] = "Deletion"
                         summary = row[11] if len(row) > 11 else ""
                         filename = row[1]
-                        entries.append((row[2], row[3], summary, filename))
+                        entries.append((row[2], source, summary, filename))
                     rows.append(row)
             with open(self._log_file, "w", newline="", encoding="utf-8") as f:
                 writer = csv.writer(f)
