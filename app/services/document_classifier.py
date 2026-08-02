@@ -268,7 +268,7 @@ class FolderEmbeddingCache:
         extra_meta: Optional[dict] = None,
     ) -> None:
         _CACHE_DIR.mkdir(parents=True, exist_ok=True)
-        meta = {"folder_names": folder_names, "labels": labels, "version": 3}
+        meta = {"folder_names": folder_names, "labels": labels, "version": 4}
         if extra_meta:
             meta.update(extra_meta)
         try:
@@ -506,6 +506,9 @@ class DocumentClassifier:
         self._folder_names: list[str] = []
         self._knn_embeddings: Optional[np.ndarray] = None
         self._knn_labels: list[str] = []
+        self._knn_is_seed: list[bool] = []
+        self._knn_filenames: list[str] = []
+        self._session_docs: list[dict] = []
         self._threshold = _DEFAULT_THRESHOLD
         self._min_gap = _MIN_GAP
         self._recent_scores: deque[float] = deque(maxlen=_THRESHOLD_WINDOW)
@@ -548,10 +551,26 @@ class DocumentClassifier:
                 continue
             self._folder_names.append(name)
 
+        self._session_docs = []
         cached_names, cached_emb, cached_labels, cached_meta = self._cache.load()
         if cached_names == self._folder_names and cached_emb is not None and cached_labels is not None:
             self._knn_embeddings = cached_emb
             self._knn_labels = cached_labels
+            filenames = cached_meta.get("filenames") or [""] * len(cached_labels)
+            seed_flags = cached_meta.get("seed_flags") or [False] * len(cached_labels)
+            if len(filenames) != len(cached_labels):
+                filenames = [""] * len(cached_labels)
+            if len(seed_flags) != len(cached_labels):
+                seed_flags = [False] * len(cached_labels)
+            self._knn_filenames = list(filenames)
+            self._knn_is_seed = [bool(s) for s in seed_flags]
+            for i, fn in enumerate(self._knn_filenames):
+                if fn:
+                    self._session_docs.append({
+                        "folder": self._knn_labels[i],
+                        "names": {fn},
+                        "embedding": self._knn_embeddings[i],
+                    })
             logger.info("[CLASSIFY] Cargado de cache (%d vectores)", len(self._knn_labels))
             return
 
@@ -582,13 +601,98 @@ class DocumentClassifier:
         if all_embs:
             self._knn_embeddings = np.stack(all_embs, axis=0)
             self._knn_labels = all_labels
-            self._cache.save(self._folder_names, self._knn_embeddings, self._knn_labels)
-        
+            self._knn_is_seed = [True] * len(all_labels)
+            self._knn_filenames = [""] * len(all_labels)
+            self._save_cache()
+
         elapsed = (time.time() - start) * 1000
         logger.info(
             "[CLASSIFY] %d vectores inicializados en %.0fms (fast path)",
             len(all_labels), elapsed,
         )
+
+    def _save_cache(self) -> None:
+        self._cache.save(
+            self._folder_names,
+            self._knn_embeddings,
+            self._knn_labels,
+            {
+                "filenames": self._knn_filenames,
+                "seed_flags": self._knn_is_seed,
+            },
+        )
+
+    def _register_doc_in_memory(
+        self, folder_name: str, embedding: np.ndarray, names: list[str],
+    ) -> None:
+        """Register name(s) -> vector in the session memory for exact removals."""
+        incoming = {n for n in names if n}
+        if not incoming:
+            return
+        norm_incoming = {_normalize_name(n) for n in incoming}
+        self._session_docs[:] = [
+            e for e in self._session_docs
+            if not (e["folder"] == folder_name and (
+                any(_normalize_name(n) in norm_incoming for n in e["names"])
+            ))
+        ]
+        self._session_docs.append({
+            "folder": folder_name,
+            "names": set(incoming),
+            "embedding": embedding,
+        })
+
+    def _remove_session_entry_by_embedding(self, folder_name: str, embedding: np.ndarray) -> None:
+        for i, e in enumerate(self._session_docs):
+            if e["folder"] == folder_name and np.allclose(e["embedding"], embedding, atol=1e-6):
+                self._session_docs.pop(i)
+                return
+
+    def _find_session_entry(self, name: str, folder_name: str) -> Optional[dict]:
+        norm = _normalize_name(name)
+        for entry in self._session_docs:
+            if entry["folder"] != folder_name:
+                continue
+            if any(_normalize_name(n) == norm for n in entry["names"]):
+                return entry
+        for entry in self._session_docs:
+            if entry["folder"] != folder_name:
+                continue
+            for n in entry["names"]:
+                if _rename_match(n, name):
+                    return entry
+        return None
+
+    def remove_document_by_name(self, name: str, source_folder: str) -> bool:
+        """Remove the exact vector of a document from the k-NN index using the
+        session memory (identity match, no similarity threshold). Returns False
+        when the document is not in memory (caller falls back to similarity)."""
+        entry = self._find_session_entry(name, source_folder)
+        if entry is None or self._knn_embeddings is None:
+            return False
+
+        folder_indices = [i for i, lbl in enumerate(self._knn_labels) if lbl == source_folder]
+        if not folder_indices:
+            return False
+
+        sims = entry["embedding"] @ self._knn_embeddings[folder_indices].T
+        best_idx = int(np.argmax(sims))
+        if sims[best_idx] <= 0.9999:
+            return False
+
+        gidx = folder_indices[best_idx]
+        self._knn_embeddings = np.delete(self._knn_embeddings, gidx, axis=0)
+        self._knn_labels.pop(gidx)
+        self._knn_is_seed.pop(gidx)
+        self._knn_filenames.pop(gidx)
+        if entry in self._session_docs:
+            self._session_docs.remove(entry)
+        self._save_cache()
+        logger.info(
+            "[CLASSIFY] Vector removido por nombre exacto de '%s' (%s)",
+            source_folder, name,
+        )
+        return True
 
     def _compute_dynamic_threshold(self) -> float:
         if len(self._recent_scores) < 10:
@@ -678,7 +782,7 @@ class DocumentClassifier:
             return None
         chunk_embs = self._engine.embed(chunks)
         return np.mean(chunk_embs, axis=0)
-        
+
     def get_chunk_embeddings(self, content: str) -> Optional[np.ndarray]:
         if not content or not content.strip():
             return None
@@ -699,6 +803,8 @@ class DocumentClassifier:
         new_names: list[str] = []
         all_embs: list[np.ndarray] = []
         all_labels: list[str] = []
+        all_is_seed: list[bool] = []
+        all_filenames: list[str] = []
 
         for f in folders:
             name = f["name"]
@@ -714,11 +820,15 @@ class DocumentClassifier:
                 for emb in seeds_emb:
                     all_embs.append(emb)
                     all_labels.append(name)
+                    all_is_seed.append(True)
+                    all_filenames.append("")
             else:
                 desc_emb = self._engine.embed_single(f"{name}: {description}")
                 all_embs.append(desc_emb)
                 all_labels.append(name)
-            
+                all_is_seed.append(True)
+                all_filenames.append("")
+
             # Limit the number of physical files to embed per folder to avoid huge matrices
             folder_doc_count = 0
             if extract_fn:
@@ -729,7 +839,7 @@ class DocumentClassifier:
                         children = sorted(folder_path.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True)
                     except Exception:
                         children = sorted(folder_path.iterdir())
-                        
+
                     for child in children:
                         if not child.is_file():
                             continue
@@ -742,6 +852,8 @@ class DocumentClassifier:
                                 if emb is not None:
                                     all_embs.append(emb)
                                     all_labels.append(name)
+                                    all_is_seed.append(False)
+                                    all_filenames.append(child.name)
                                     folder_doc_count += 1
                         except Exception:
                             continue
@@ -751,75 +863,105 @@ class DocumentClassifier:
 
         self._folder_names = new_names
         self._knn_embeddings = np.stack(all_embs, axis=0)
-        
+
         # Normalize
         norms = np.linalg.norm(self._knn_embeddings, axis=1, keepdims=True).clip(min=1e-9)
         self._knn_embeddings = self._knn_embeddings / norms
-        
+
         self._knn_labels = all_labels
-        self._cache.save(self._folder_names, self._knn_embeddings, self._knn_labels)
+        self._knn_is_seed = all_is_seed
+        self._knn_filenames = all_filenames
+        self._session_docs = [
+            {
+                "folder": lbl,
+                "names": {fn},
+                "embedding": self._knn_embeddings[i],
+            }
+            for i, (lbl, fn) in enumerate(zip(all_labels, all_filenames))
+            if fn
+        ]
+        self._save_cache()
         logger.info(
             "[CLASSIFY] Índice k-NN reconstruido (%d carpetas, %d vectores)",
             len(new_names), len(all_labels),
         )
         return True
 
-    def add_document_embedding(self, folder_name: str, document_embedding: np.ndarray) -> bool:
+    def add_document_embedding(
+        self, folder_name: str, document_embedding: np.ndarray,
+        names: Optional[list[str]] = None,
+    ) -> bool:
         if folder_name not in self._folder_names:
             logger.warning("[CLASSIFY] Carpeta '%s' no encontrada para k-NN", folder_name)
             return False
-            
+
         norm = np.linalg.norm(document_embedding)
         if norm > 1e-9:
             document_embedding = document_embedding / norm
-            
+
         if self._knn_embeddings is None:
             self._knn_embeddings = np.array([document_embedding])
             self._knn_labels = [folder_name]
+            self._knn_is_seed = [False]
+            self._knn_filenames = [names[0] if names else ""]
         else:
             self._knn_embeddings = np.vstack([self._knn_embeddings, document_embedding])
             self._knn_labels.append(folder_name)
-            
-        # Prune if too many
+            self._knn_is_seed.append(False)
+            self._knn_filenames.append(names[0] if names else "")
+
+        # Prune if too many (never evict seed vectors)
         indices = [i for i, lbl in enumerate(self._knn_labels) if lbl == folder_name]
         if len(indices) > _MAX_DOCS_PER_FOLDER:
-            # Remove the oldest for this folder (the first one found)
-            idx_to_remove = indices[0]
-            self._knn_embeddings = np.delete(self._knn_embeddings, idx_to_remove, axis=0)
-            self._knn_labels.pop(idx_to_remove)
-            
-        self._cache.save(self._folder_names, self._knn_embeddings, self._knn_labels)
+            removable = [i for i in indices if not self._knn_is_seed[i]]
+            if removable:
+                idx_to_remove = removable[0]
+                removed_emb = self._knn_embeddings[idx_to_remove]
+                self._knn_embeddings = np.delete(self._knn_embeddings, idx_to_remove, axis=0)
+                self._knn_labels.pop(idx_to_remove)
+                self._knn_is_seed.pop(idx_to_remove)
+                self._knn_filenames.pop(idx_to_remove)
+                self._remove_session_entry_by_embedding(folder_name, removed_emb)
+
+        if names:
+            self._register_doc_in_memory(folder_name, document_embedding, names)
+
+        self._save_cache()
         logger.info("[CLASSIFY] Añadido vector a '%s' (total %d en k-NN)", folder_name, len(self._knn_labels))
         return True
-        
+
     def remove_document_embedding(self, folder_name: str, document_embedding: np.ndarray) -> bool:
         if self._knn_embeddings is None or folder_name not in self._knn_labels:
             return False
-            
+
         norm = np.linalg.norm(document_embedding)
         if norm > 1e-9:
             document_embedding = document_embedding / norm
-            
+
         # Find the most similar embedding in this folder to remove it
         folder_indices = [i for i, lbl in enumerate(self._knn_labels) if lbl == folder_name]
         if not folder_indices:
             return False
-            
+
         folder_embs = self._knn_embeddings[folder_indices]
         sims = document_embedding @ folder_embs.T
         best_match_idx = int(np.argmax(sims))
         best_match_sim = sims[best_match_idx]
-        
+
         if best_match_sim > 0.95:  # Very close match
             global_idx_to_remove = folder_indices[best_match_idx]
+            removed_emb = self._knn_embeddings[global_idx_to_remove]
             self._knn_embeddings = np.delete(self._knn_embeddings, global_idx_to_remove, axis=0)
             self._knn_labels.pop(global_idx_to_remove)
-            self._cache.save(self._folder_names, self._knn_embeddings, self._knn_labels)
+            self._knn_is_seed.pop(global_idx_to_remove)
+            self._knn_filenames.pop(global_idx_to_remove)
+            self._remove_session_entry_by_embedding(folder_name, removed_emb)
+            self._save_cache()
             logger.info("[CLASSIFY] Vector removido de '%s'", folder_name)
             return True
-            
+
         return False
-        
+
     def update_folder_centroid(self, folder_name: str, document_embedding: np.ndarray, remove: bool = False) -> bool:
         """Backward compatibility con folder_monitor.py"""
         if remove:
@@ -847,28 +989,28 @@ class DocumentClassifier:
         # 3. K-Nearest Neighbors
         k = min(_KNN_K, len(db_scores))
         top_k_indices = np.argsort(db_scores)[::-1][:k]
-        
+
         # Agrupar scores por carpeta usando los K mejores
         folder_scores = defaultdict(list)
         for idx in top_k_indices:
             lbl = self._knn_labels[idx]
             folder_scores[lbl].append(db_scores[idx])
-            
+
         # El score final de cada carpeta es el promedio de sus scores en el top-K
         # Si una carpeta tiene más votos, su score será más alto, o penalizamos las que no están?
         # Mejor: usar el score máximo o ponderado de la carpeta en el top-K
         final_scores = {folder: np.mean(scores) for folder, scores in folder_scores.items()}
-        
+
         # Rellenar con 0 para el resto
         for name in self._folder_names:
             if name not in final_scores:
                 final_scores[name] = 0.0
-                
+
         sorted_folders = sorted(final_scores.items(), key=lambda x: x[1], reverse=True)
         best_folder, best_score = sorted_folders[0]
         second_score = sorted_folders[1][1] if len(sorted_folders) > 1 else 0.0
         gap = best_score - second_score
-        
+
         # Softmax over all top max scores per folder for confidence
         # Instead of just top-K, get the max score for EACH folder across the whole DB
         all_folder_max = defaultdict(float)
@@ -877,15 +1019,15 @@ class DocumentClassifier:
         for name in self._folder_names:
             if name not in all_folder_max:
                 all_folder_max[name] = 0.0
-                
+
         # Confidence is calculated using the global max per folder
         global_sorted = sorted(all_folder_max.values(), reverse=True)
         g_best = global_sorted[0] if global_sorted else 0.0
         g_second = global_sorted[1] if len(global_sorted) > 1 else 0.0
         g_gap = g_best - g_second
-        
+
         confidence = self._compute_confidence(g_best, g_second, g_gap, all_folder_max)
-        
+
         return (
             best_folder,
             float(best_score),
@@ -945,9 +1087,12 @@ class DocumentClassifier:
                 all_scores_raw=scores_map,
                 summary="",
             )
-            doc_emb = self.get_document_embedding(content)
+            doc_emb = self.get_document_embedding(content, summary="")
             if doc_emb is not None:
-                self.add_document_embedding(kw_folder, doc_emb)
+                self.add_document_embedding(
+                    kw_folder, doc_emb,
+                    names=[filename, result.suggested_name],
+                )
             self._log.log(result, file_path=log_path)
             logger.info(
                 "[CLASSIFY] %s -> %s (keyword) nombre='%s'",
@@ -959,7 +1104,7 @@ class DocumentClassifier:
         if self._knn_embeddings is not None and content and content.strip():
             start = time.time()
             dynamic_th = self._compute_dynamic_threshold()
-            
+
             # --- FASE 1: Chunks Max-Pooling (Sin LLM) ---
             chunk_embs = self.get_chunk_embeddings(content)
             best_folder = DEFAULT_FOLDER
@@ -969,10 +1114,10 @@ class DocumentClassifier:
             all_scores_raw = {}
             method = "knn_chunks"
             summary = ""
-            
+
             if chunk_embs is not None:
                 best_folder, best_score, gap, confidence, all_scores_raw = self._predict_knn(chunk_embs)
-                
+
             # Evaluamos si la Fase 1 es suficientemente segura.
             # Además de score y gap, exigimos una confianza mínima para
             # no comprometer la clasificación con poca evidencia.
@@ -1002,7 +1147,7 @@ class DocumentClassifier:
             elapsed = (time.time() - start) * 1000
 
             self._recent_scores.append(best_score)
-            
+
             logger.info(
                 "[CLASSIFY] %s (%.0fms): mejor='%s' score=%.3f gap=%.3f "
                 "confianza=%.2f th=%.3f",
@@ -1023,12 +1168,15 @@ class DocumentClassifier:
                     all_scores_raw=all_scores_raw,
                     summary=summary,
                 )
-                
+
                 # Para añadir a la BD k-NN, usamos el vector final (el resumen si lo hay, o el promedio de chunks)
                 doc_emb = self.get_document_embedding(content, summary=summary)
                 if doc_emb is not None:
-                    self.add_document_embedding(best_folder, doc_emb)
-                    
+                    self.add_document_embedding(
+                        best_folder, doc_emb,
+                        names=[filename, suggested],
+                    )
+
                 self._log.log(result, file_path=log_path)
                 logger.info(
                     "[CLASSIFY] %s -> %s (%s=%.3f gap=%.3f conf=%.2f) nombre='%s'",
@@ -1106,7 +1254,10 @@ class DocumentClassifier:
                 return best_folder, suggested
 
         suggested = self._suggest_name(filename, content, DEFAULT_FOLDER)
-        logger.info("[CLASSIFY] %s -> %s (fallback)", filename, DEFAULT_FOLDER)
+        logger.info(
+            "[CLASSIFY] Keywords: sin match -> continúo con embeddings (%s)",
+            filename,
+        )
         return DEFAULT_FOLDER, suggested
 
     def _suggest_name(self, filename: str, content: str, folder: str) -> str:

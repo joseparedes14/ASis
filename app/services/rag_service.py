@@ -8,6 +8,7 @@ import faiss
 import numpy as np
 from langchain_core.messages import HumanMessage
 from langchain_text_splitters import RecursiveCharacterTextSplitter
+from watchdog.events import FileSystemEventHandler
 
 from app.config.logging_config import get_logger
 from app.config.settings import get_settings
@@ -269,7 +270,7 @@ _SUPPORTED_EXTS = {
 }
 
 
-class _AsiorgaHandler:
+class _AsiorgaHandler(FileSystemEventHandler):
     def __init__(self, indexer: "RagDocumentIndexer") -> None:
         self._indexer = indexer
 

@@ -396,14 +396,24 @@ class FolderMonitor:
                         classifier = self._get_classifier()
                         extractor = self._get_extractor()
                         content = extractor.extract(file_path) or ""
+                        emb = None
                         if content.strip():
                             emb = classifier.get_document_embedding(content, summary=summary)
                             if emb is not None:
-                                classifier.add_document_embedding(folder_name, emb)
-                                if predicted_folder != folder_name:
-                                    classifier.remove_document_embedding(
-                                        predicted_folder, emb
-                                    )
+                                classifier.add_document_embedding(
+                                    folder_name, emb, names=[file_path.name]
+                                )
+                        if predicted_folder != folder_name:
+                            removed_by_name = (
+                                emb is not None
+                                and classifier.remove_document_by_name(
+                                    file_path.name, predicted_folder
+                                )
+                            )
+                            if not removed_by_name and emb is not None:
+                                classifier.remove_document_embedding(
+                                    predicted_folder, emb
+                                )
 
             # --- Deletion detection ---
             orphaned = log.get_orphaned_entries(active_basenames)
@@ -430,9 +440,10 @@ class FolderMonitor:
                 if summary:
                     self._remove_seed_text(predicted_folder, summary, source_name="eliminacion")
                     classifier = self._get_classifier()
-                    emb = classifier.get_document_embedding(summary, summary=summary)
-                    if emb is not None:
-                        classifier.remove_document_embedding(predicted_folder, emb)
+                    if not classifier.remove_document_by_name(filename, predicted_folder):
+                        emb = classifier.get_document_embedding(summary, summary=summary)
+                        if emb is not None:
+                            classifier.remove_document_embedding(predicted_folder, emb)
 
             total = corrections + deletions
             if total:
