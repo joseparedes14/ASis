@@ -139,6 +139,7 @@ class FolderMonitor:
         self._notifications: queue.Queue[FileNotification] = queue.Queue()
         self._observer: Optional[Observer] = None
         self._thread: Optional[threading.Thread] = None
+        self._correction_thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
 
         self._corrections_since_rebuild = 0
@@ -227,6 +228,7 @@ class FolderMonitor:
         self._observer.schedule(handler, str_path, recursive=False)
         if not self._observer.is_alive():
             self._observer.start()
+        self._ensure_correction_loop()
         logger.info("Added folder to monitoring: %s", resolved)
 
         return (
@@ -317,6 +319,21 @@ class FolderMonitor:
             self.check_corrections()
             self._stop_event.wait(timeout=60)
 
+    def _ensure_correction_loop(self) -> None:
+        """Ensure the periodic correction-scan thread is running.
+
+        The correction thread must always be alive so that manual moves
+        between ASIORGA folders are detected even when the monitor was
+        started before any folder was configured.
+        """
+        if self._correction_thread is not None and self._correction_thread.is_alive():
+            return
+        self._stop_event.clear()
+        self._correction_thread = threading.Thread(
+            target=self._correction_check_loop, daemon=True
+        )
+        self._correction_thread.start()
+
     def check_corrections(self) -> int:
         """Detect manual corrections by comparing classification log
         with actual file locations in ASIORGA folders.
@@ -356,6 +373,18 @@ class FolderMonitor:
                     if result is not None:
                         corrections += 1
                         predicted_folder, summary = result
+                        self._notifications.put(FileNotification(
+                            filename=file_path.name,
+                            source_folder=predicted_folder,
+                            destination_folder=folder_name,
+                            timestamp=datetime.now(),
+                            success=True,
+                            message=(
+                                f"Correccion manual detectada: movido de "
+                                f"'{predicted_folder}' a '{folder_name}'"
+                            ),
+                            method="correccion",
+                        ))
                         self._update_seed_texts_from_file(
                             file_path, folder_name, summary=summary,
                         )
@@ -370,10 +399,10 @@ class FolderMonitor:
                         if content.strip():
                             emb = classifier.get_document_embedding(content, summary=summary)
                             if emb is not None:
-                                classifier.update_folder_centroid(folder_name, emb, remove=False)
+                                classifier.add_document_embedding(folder_name, emb)
                                 if predicted_folder != folder_name:
-                                    classifier.update_folder_centroid(
-                                        predicted_folder, emb, remove=True,
+                                    classifier.remove_document_embedding(
+                                        predicted_folder, emb
                                     )
 
             # --- Deletion detection ---
@@ -381,6 +410,15 @@ class FolderMonitor:
             for file_path_str, predicted_folder, summary, filename in orphaned:
                 deletions += 1
                 logger.info("[MONITOR] Archivo eliminado detectado: %s", filename)
+                self._notifications.put(FileNotification(
+                    filename=filename,
+                    source_folder=predicted_folder,
+                    destination_folder="ELIMINADO",
+                    timestamp=datetime.now(),
+                    success=True,
+                    message=f"Archivo eliminado: {filename}",
+                    method="deleted",
+                ))
 
                 # Remove from RAG index
                 try:
@@ -394,7 +432,7 @@ class FolderMonitor:
                     classifier = self._get_classifier()
                     emb = classifier.get_document_embedding(summary, summary=summary)
                     if emb is not None:
-                        classifier.update_folder_centroid(predicted_folder, emb, remove=True)
+                        classifier.remove_document_embedding(predicted_folder, emb)
 
             total = corrections + deletions
             if total:
@@ -524,11 +562,7 @@ class FolderMonitor:
         self._observer.start()
 
         # Start periodic correction scan
-        self._stop_event.clear()
-        self._correction_thread = threading.Thread(
-            target=self._correction_check_loop, daemon=True
-        )
-        self._correction_thread.start()
+        self._ensure_correction_loop()
 
         logger.info("Folder monitor started — %d folders", len(folders))
 

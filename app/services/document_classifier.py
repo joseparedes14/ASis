@@ -2,6 +2,7 @@ import csv
 import json
 import re
 import time
+import unicodedata
 from collections import defaultdict, deque
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -16,10 +17,56 @@ from app.config.logging_config import get_logger
 
 logger = get_logger(__name__)
 
-_MODEL_REPO = "Xenova/all-MiniLM-L6-v2"
+
+def _json_default(obj):
+    """Serialize numpy scalars/arrays for json.dumps."""
+    if isinstance(obj, np.generic):
+        return obj.item()
+    if isinstance(obj, np.ndarray):
+        return obj.tolist()
+    raise TypeError(
+        f"Object of type {type(obj).__name__} is not JSON serializable"
+    )
+
+
+def _strip_accents(text: str) -> str:
+    """Remove combining diacritics (á -> a) for fuzzy name matching."""
+    return "".join(
+        ch for ch in unicodedata.normalize("NFKD", text)
+        if not unicodedata.combining(ch)
+    )
+
+
+def _normalize_name(name: str) -> str:
+    """Lowercase, strip accents and all non-alphanumeric chars."""
+    return re.sub(r"[^a-z0-9]+", "", _strip_accents(name or "").lower())
+
+
+def _significant_tokens(name: str) -> set[str]:
+    """Meaningful tokens of a filename (no accents, no digits, no particles)."""
+    toks = {
+        t
+        for t in re.split(r"[^a-z0-9]+", _strip_accents(name or "").lower())
+        if t
+    }
+    return {t for t in toks if len(t) > 2 and not t.isdigit()}
+
+
+def _rename_match(log_name: str, phys_name: str) -> bool:
+    """True when most meaningful tokens of the log name appear in the
+    physical file name (detects manual moves that also renamed the file)."""
+    lt = _significant_tokens(log_name)
+    pt = _significant_tokens(phys_name)
+    if not lt or not pt:
+        return False
+    shared = lt & pt
+    return len(shared) >= 1 and (len(shared) / len(lt)) >= 0.6
+
+_MODEL_REPO = "Xenova/paraphrase-multilingual-MiniLM-L12-v2"
 _EMBED_DIM = 384
 _DEFAULT_THRESHOLD = 0.35
-_MIN_GAP = 0.01
+_MIN_GAP = 0.05
+_MIN_CONFIDENCE = 0.40
 _SUMMARY_MODEL = "llama3.1:8b"
 _SUMMARY_PROMPT = """Extract: document type, main topic, key entities.
 Return ONLY the raw summary in the SAME LANGUAGE as the document.
@@ -36,13 +83,15 @@ _MAX_CHUNKS = 8
 _CHUNK_SIZE = 300
 _THRESHOLD_WINDOW = 50
 _THRESHOLD_PERCENTILE = 25
+_KNN_K = 5
+_MAX_DOCS_PER_FOLDER = 50
 
 FOLDER_RULES: dict[str, dict] = {
     "Universidad": {
         "filename_patterns": [
             r"^GD_\d+",
             r"(?i)guia_docente",
-            r"(?i)tema\d+",
+            r"(?i)tema[\s._-]?\d",
             r"(?i)(tfg|tfm|pfc)",
             r"(?i)(examen|parcial|final)_",
         ],
@@ -200,25 +249,26 @@ class FolderEmbeddingCache:
         self._npy_path = npy_path
         self._meta_path = meta_path
 
-    def load(self) -> tuple[Optional[list[str]], Optional[np.ndarray], Optional[dict]]:
+    def load(self) -> tuple[Optional[list[str]], Optional[np.ndarray], Optional[list[str]], Optional[dict]]:
         if not self._npy_path.exists() or not self._meta_path.exists():
-            return None, None, None
+            return None, None, None, None
         try:
             meta = json.loads(self._meta_path.read_text(encoding="utf-8"))
             embeddings = np.load(str(self._npy_path))
             folder_names = meta.get("folder_names", [])
-            logger.info("[CACHE] Embeddings cargados de cache (%d carpetas)", len(folder_names))
-            return folder_names, embeddings, meta
+            labels = meta.get("labels", [])
+            logger.info("[CACHE] Embeddings cargados de cache (%d vectores)", len(labels))
+            return folder_names, embeddings, labels, meta
         except Exception as e:
             logger.warning("[CACHE] Error cargando cache: %s", e)
-            return None, None, None
+            return None, None, None, None
 
     def save(
-        self, folder_names: list[str], embeddings: np.ndarray,
+        self, folder_names: list[str], embeddings: np.ndarray, labels: list[str],
         extra_meta: Optional[dict] = None,
     ) -> None:
         _CACHE_DIR.mkdir(parents=True, exist_ok=True)
-        meta = {"folder_names": folder_names, "version": 2}
+        meta = {"folder_names": folder_names, "labels": labels, "version": 3}
         if extra_meta:
             meta.update(extra_meta)
         try:
@@ -226,8 +276,8 @@ class FolderEmbeddingCache:
                 json.dumps(meta, indent=2, ensure_ascii=False), encoding="utf-8"
             )
             np.save(str(self._npy_path), embeddings)
-            logger.info("[CACHE] Embeddings guardados en cache (%d carpetas, %s)",
-                        len(folder_names), str(self._npy_path))
+            logger.info("[CACHE] Embeddings guardados en cache (%d vectores, %s)",
+                        len(labels), str(self._npy_path))
         except Exception as e:
             logger.warning("[CACHE] Error guardando cache: %s", e)
 
@@ -266,7 +316,7 @@ class ClassificationLog:
                     f"{result.threshold_used:.4f}",
                     f"{result.gap:.4f}",
                     result.method,
-                    json.dumps(result.all_scores_raw, ensure_ascii=False),
+                    json.dumps(result.all_scores_raw, ensure_ascii=False, default=_json_default),
                     "",
                     "",
                     result.summary,
@@ -277,36 +327,82 @@ class ClassificationLog:
     def record_correction(self, file_path: str, corrected_folder: str) -> Optional[tuple[str, str]]:
         """Register a manual correction.
 
+        Matches the physical file against the classification log using the
+        destination filename (stored in the log), its original basename, and
+        normalized/token-based fallbacks so manual moves keep being detected
+        even when the file was renamed.
+
         Returns:
             (predicted_folder, summary) tuple if a correction was recorded,
             or None if no correction was needed.
         """
         try:
-            rows = []
+            if not self._log_file.exists():
+                return None
+
+            basename = Path(file_path).name
+            norm_basename = _normalize_name(basename)
+
+            rows: list[list[str]] = []
+            candidates: list[list[str]] = []
+            with open(self._log_file, "r", newline="", encoding="utf-8") as f:
+                reader = csv.reader(f)
+                header = next(reader, None)
+                if header:
+                    rows.append(header)
+                for row in reader:
+                    rows.append(row)
+                    if len(row) >= 11 and not row[9]:
+                        candidates.append(row)
+
+            def _matches(row: list[str], token_fallback: bool) -> bool:
+                log_path = row[2]
+                log_filename = row[1]
+                log_basename = Path(log_path).name
+                if log_basename == basename or log_filename == basename:
+                    return True
+                norm_log = _normalize_name(log_basename)
+                norm_file = _normalize_name(log_filename)
+                if norm_log == norm_basename or norm_file == norm_basename:
+                    return True
+                if token_fallback:
+                    if _rename_match(log_filename, basename):
+                        return True
+                    if _rename_match(log_basename, basename):
+                        return True
+                return False
+
             predicted_folder = None
             summary = ""
-            basename = Path(file_path).name
-            if self._log_file.exists():
-                with open(self._log_file, "r", newline="", encoding="utf-8") as f:
-                    reader = csv.reader(f)
-                    header = next(reader, None)
-                    if header:
-                        rows.append(header)
-                    for row in reader:
-                        if len(row) >= 11 and not row[9]:
-                            log_path = row[2]
-                            log_filename = row[1]
-                            log_basename = Path(log_path).name
-                            if log_basename == basename or log_filename == basename:
-                                predicted = row[3]
-                                if predicted != corrected_folder:
-                                    row[9] = "False"
-                                    row[10] = corrected_folder
-                                    predicted_folder = predicted
-                                    summary = row[11] if len(row) > 11 else ""
-                        rows.append(row)
+            found_exact = False
+
+            # Pass 1: exact / normalized matches
+            for row in candidates:
+                if _matches(row, token_fallback=False):
+                    found_exact = True
+                    predicted = row[3]
+                    if predicted != corrected_folder:
+                        row[9] = "False"
+                        row[10] = corrected_folder
+                        predicted_folder = predicted
+                        summary = row[11] if len(row) > 11 else ""
+
+            # Pass 2: token-based fallback for renamed files, only if nothing
+            # matched by exact/normalized name (avoids false positives).
+            if predicted_folder is None and not found_exact:
+                for row in candidates:
+                    if _matches(row, token_fallback=True):
+                        predicted = row[3]
+                        if predicted != corrected_folder:
+                            row[9] = "False"
+                            row[10] = corrected_folder
+                            predicted_folder = predicted
+                            summary = row[11] if len(row) > 11 else ""
+                        break
+
             if predicted_folder is None:
                 return None
+
             with open(self._log_file, "w", newline="", encoding="utf-8") as f:
                 writer = csv.writer(f)
                 writer.writerows(rows)
@@ -408,9 +504,8 @@ class DocumentClassifier:
         self._engine = _EmbeddingEngine()
         self._summary_llm = self._init_summary_llm()
         self._folder_names: list[str] = []
-        self._folder_embeddings: Optional[np.ndarray] = None
-        self._folder_counts: list[int] = []
-        self._folder_sources: list[str] = []
+        self._knn_embeddings: Optional[np.ndarray] = None
+        self._knn_labels: list[str] = []
         self._threshold = _DEFAULT_THRESHOLD
         self._min_gap = _MIN_GAP
         self._recent_scores: deque[float] = deque(maxlen=_THRESHOLD_WINDOW)
@@ -433,7 +528,7 @@ class DocumentClassifier:
                 num_ctx=2048,
             )
         except Exception:
-            logger.warning("[CLASSIFY] No se pudo crear summary LLM, se usará embedding directo")
+            logger.warning("[CLASSIFY] No se pudo crear summary LLM")
             return None
 
     def reload_folders(self) -> None:
@@ -447,26 +542,25 @@ class DocumentClassifier:
             return
 
         self._folder_names = []
-
         for f in folders:
             name = f["name"]
             if name in (DEFAULT_FOLDER, "Fotos"):
                 continue
             self._folder_names.append(name)
 
-        cached_names, cached_emb, cached_meta = self._cache.load()
-        if cached_names == self._folder_names and cached_emb is not None:
-            self._folder_embeddings = cached_emb
-            self._folder_counts = cached_meta.get("folder_counts", [1] * len(self._folder_names))
-            logger.info("[CLASSIFY] Cargado de cache (%d carpetas)", len(self._folder_names))
+        cached_names, cached_emb, cached_labels, cached_meta = self._cache.load()
+        if cached_names == self._folder_names and cached_emb is not None and cached_labels is not None:
+            self._knn_embeddings = cached_emb
+            self._knn_labels = cached_labels
+            logger.info("[CLASSIFY] Cargado de cache (%d vectores)", len(self._knn_labels))
             return
 
+        # Fast path initialization from seeds
         folder_map = {f["name"]: f for f in folders}
-        pooled_list: list[np.ndarray] = []
-        counts: list[int] = []
+        all_embs = []
+        all_labels = []
 
         start = time.time()
-
         for name in self._folder_names:
             f = folder_map.get(name, {})
             description = f.get("description", name)
@@ -478,63 +572,23 @@ class DocumentClassifier:
                 else [f"{name}: {description}"]
             )
             embs = self._engine.embed(local_texts)
-            centroid = np.mean(embs, axis=0)
-            norm = np.linalg.norm(centroid)
-            if norm > 1e-9:
-                centroid = centroid / norm
-            pooled_list.append(centroid)
-            counts.append(len(local_texts))
+            for emb in embs:
+                norm = np.linalg.norm(emb)
+                if norm > 1e-9:
+                    emb = emb / norm
+                all_embs.append(emb)
+                all_labels.append(name)
 
-        self._folder_embeddings = np.stack(pooled_list, axis=0)
-        self._folder_counts = counts
-
+        if all_embs:
+            self._knn_embeddings = np.stack(all_embs, axis=0)
+            self._knn_labels = all_labels
+            self._cache.save(self._folder_names, self._knn_embeddings, self._knn_labels)
+        
         elapsed = (time.time() - start) * 1000
-        self._cache.save(self._folder_names, self._folder_embeddings, {
-            "folder_counts": counts,
-        })
         logger.info(
-            "[CLASSIFY] %d carpetas embebidas en %.0fms (fast path)",
-            len(self._folder_names), elapsed,
+            "[CLASSIFY] %d vectores inicializados en %.0fms (fast path)",
+            len(all_labels), elapsed,
         )
-
-    def _generate_folder_centroid(
-        self, name: str, description: str, seed_texts: list[str],
-    ) -> Optional[np.ndarray]:
-        if self._llm is None:
-            return None
-        seed_context = ""
-        if seed_texts:
-            lines = "\n".join(f"- {s}" for s in seed_texts[:10])
-            seed_context = f"Existing examples:\n{lines}"
-        prompt = _SYNTHETIC_CENTROID_PROMPT.format(
-            name=name, description=description, seed_context=seed_context,
-        )
-        try:
-            response = self._llm.invoke([HumanMessage(content=prompt)])
-            raw = (response.content or "").strip()
-            candidates = []
-            for line in raw.split("\n"):
-                line = re.sub(r"^[\d\-*•.]+\s*", "", line).strip()
-                if 10 <= len(line) <= 300:
-                    candidates.append(f"{name}: {line}")
-                    if len(candidates) >= 15:
-                        break
-            if not candidates:
-                logger.warning("[CLASSIFY] LLM no generó sintéticos para '%s'", name)
-                return None
-            embs = self._engine.embed(candidates)
-            centroid = np.mean(embs, axis=0)
-            norm = np.linalg.norm(centroid)
-            if norm > 1e-9:
-                centroid = centroid / norm
-            logger.info(
-                "[CLASSIFY] Centroide sintético generado para '%s' (%d muestras)",
-                name, len(candidates),
-            )
-            return centroid
-        except Exception as e:
-            logger.warning("[CLASSIFY] Error generando centroide sintético para '%s': %s", name, e)
-            return None
 
     def _compute_dynamic_threshold(self) -> float:
         if len(self._recent_scores) < 10:
@@ -564,17 +618,15 @@ class DocumentClassifier:
         return chunks
 
     def _compute_confidence(
-        self, best_score: float, second_score: float, all_scores: np.ndarray
+        self, best_score: float, second_score: float, gap: float, folder_probs: dict[str, float]
     ) -> float:
-        gap = best_score - second_score
         gap_conf = np.clip(gap / 0.15, 0.0, 1.0)
-
         score_conf = np.clip((best_score - 0.25) / 0.4, 0.0, 1.0)
 
-        probs = np.exp(all_scores - np.max(all_scores))
+        probs = np.array(list(folder_probs.values()))
         probs = probs / (np.sum(probs) + 1e-9)
         entropy = -np.sum(probs * np.log(probs + 1e-9))
-        max_entropy = np.log(len(all_scores) + 1e-9)
+        max_entropy = np.log(len(probs) + 1e-9)
         entropy_conf = 1.0 - (entropy / max(max_entropy, 1e-9)) if max_entropy > 0 else 0.5
 
         combined = 0.35 * score_conf + 0.35 * gap_conf + 0.30 * entropy_conf
@@ -613,6 +665,7 @@ class DocumentClassifier:
     def get_document_embedding(
         self, content: str, summary: Optional[str] = None,
     ) -> Optional[np.ndarray]:
+        # Keeps original behavior: returns single averaged vector if no summary
         if not content or not content.strip():
             return None
         if summary is None:
@@ -625,21 +678,18 @@ class DocumentClassifier:
             return None
         chunk_embs = self._engine.embed(chunks)
         return np.mean(chunk_embs, axis=0)
+        
+    def get_chunk_embeddings(self, content: str) -> Optional[np.ndarray]:
+        if not content or not content.strip():
+            return None
+        chunks = self._chunk_text(content.strip())
+        if not chunks:
+            return None
+        return self._engine.embed(chunks)
 
     def rebuild_centroids(self, folders: list[dict], extract_fn=None) -> bool:
-        """Recalculate centroids from seed_texts + actual files on disk.
-
-        Scans each physical ASIORGA folder, extracts text from every file
-        via *extract_fn*, embeds everything (seeds + files), and replaces
-        the current centroids and counts.
-
-        Args:
-            folders: List of destination folder dicts from FolderManager.
-            extract_fn: Optional callable ``f(path) -> str`` for file extraction.
-                If omitted, only seed_texts are used (equivalent to load_folders).
-
-        Returns:
-            True if any folder was processed.
+        """Reconstruye el índice k-NN desde cero escaneando los archivos físicos.
+        Mantenemos el nombre 'rebuild_centroids' por compatibilidad con folder_monitor.
         """
         if not folders:
             return False
@@ -647,8 +697,8 @@ class DocumentClassifier:
         from app.services.folder_manager import ASIORGA_ROOT
 
         new_names: list[str] = []
-        new_embeddings: list[np.ndarray] = []
-        new_counts: list[int] = []
+        all_embs: list[np.ndarray] = []
+        all_labels: list[str] = []
 
         for f in folders:
             name = f["name"]
@@ -659,98 +709,191 @@ class DocumentClassifier:
             seed_texts = f.get("seed_texts") or []
             description = f.get("description", name)
 
-            all_embs: list[np.ndarray] = []
             if seed_texts:
                 seeds_emb = self._engine.embed([f"{name}: {t}" for t in seed_texts])
-                all_embs.extend(seeds_emb)
+                for emb in seeds_emb:
+                    all_embs.append(emb)
+                    all_labels.append(name)
             else:
                 desc_emb = self._engine.embed_single(f"{name}: {description}")
                 all_embs.append(desc_emb)
-
+                all_labels.append(name)
+            
+            # Limit the number of physical files to embed per folder to avoid huge matrices
+            folder_doc_count = 0
             if extract_fn:
                 folder_path = ASIORGA_ROOT / name
                 if folder_path.is_dir():
-                    for child in sorted(folder_path.iterdir()):
+                    # Sort by modification time to get newest first
+                    try:
+                        children = sorted(folder_path.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True)
+                    except Exception:
+                        children = sorted(folder_path.iterdir())
+                        
+                    for child in children:
                         if not child.is_file():
                             continue
+                        if folder_doc_count >= _MAX_DOCS_PER_FOLDER:
+                            break
                         try:
                             content = extract_fn(child) or ""
                             if content.strip():
                                 emb = self.get_document_embedding(content)
                                 if emb is not None:
                                     all_embs.append(emb)
+                                    all_labels.append(name)
+                                    folder_doc_count += 1
                         except Exception:
                             continue
 
-            if not all_embs:
-                all_embs = [self._engine.embed_single(f"{name}: (empty)")]
-
-            centroid = np.mean(all_embs, axis=0)
-            norm = np.linalg.norm(centroid)
-            if norm > 1e-9:
-                centroid = centroid / norm
-            new_embeddings.append(centroid)
-            new_counts.append(len(all_embs))
-
-        if not new_embeddings:
+        if not all_embs:
             return False
 
         self._folder_names = new_names
-        self._folder_embeddings = np.stack(new_embeddings, axis=0)
-        self._folder_counts = new_counts
-        self._cache.save(self._folder_names, self._folder_embeddings, {
-            "folder_counts": new_counts,
-        })
-        total_texts = sum(new_counts)
+        self._knn_embeddings = np.stack(all_embs, axis=0)
+        
+        # Normalize
+        norms = np.linalg.norm(self._knn_embeddings, axis=1, keepdims=True).clip(min=1e-9)
+        self._knn_embeddings = self._knn_embeddings / norms
+        
+        self._knn_labels = all_labels
+        self._cache.save(self._folder_names, self._knn_embeddings, self._knn_labels)
         logger.info(
-            "[CLASSIFY] Centroides reconstruidos (%d carpetas, %d textos)",
-            len(new_names), total_texts,
+            "[CLASSIFY] Índice k-NN reconstruido (%d carpetas, %d vectores)",
+            len(new_names), len(all_labels),
         )
         return True
 
-    def update_folder_centroid(
-        self, folder_name: str, document_embedding: np.ndarray, remove: bool = False,
-    ) -> bool:
+    def add_document_embedding(self, folder_name: str, document_embedding: np.ndarray) -> bool:
         if folder_name not in self._folder_names:
-            logger.warning(
-                "[CLASSIFY] Carpeta '%s' no encontrada para actualizar centroide", folder_name,
-            )
+            logger.warning("[CLASSIFY] Carpeta '%s' no encontrada para k-NN", folder_name)
             return False
-        idx = self._folder_names.index(folder_name)
-        count = self._folder_counts[idx]
-        centroid = self._folder_embeddings[idx].copy()
-
-        if remove:
-            if count <= 1:
-                logger.warning(
-                    "[CLASSIFY] No se puede remover del centroide '%s' (count=%d)",
-                    folder_name, count,
-                )
-                return False
-            new_count = count - 1
-            new_centroid = (centroid * count - document_embedding) / new_count
-        else:
-            new_count = count + 1
-            new_centroid = (centroid * count + document_embedding) / new_count
-
-        norm = np.linalg.norm(new_centroid)
+            
+        norm = np.linalg.norm(document_embedding)
         if norm > 1e-9:
-            new_centroid = new_centroid / norm
+            document_embedding = document_embedding / norm
+            
+        if self._knn_embeddings is None:
+            self._knn_embeddings = np.array([document_embedding])
+            self._knn_labels = [folder_name]
         else:
-            new_centroid = centroid
-
-        self._folder_embeddings[idx] = new_centroid
-        self._folder_counts[idx] = new_count
-
-        self._cache.save(self._folder_names, self._folder_embeddings, {
-            "folder_counts": self._folder_counts,
-        })
-        action = "añadido" if not remove else "removido"
-        logger.info(
-            "[CLASSIFY] Centroide '%s' actualizado (%s, count=%d)",
-            folder_name, action, new_count,
-        )
+            self._knn_embeddings = np.vstack([self._knn_embeddings, document_embedding])
+            self._knn_labels.append(folder_name)
+            
+        # Prune if too many
+        indices = [i for i, lbl in enumerate(self._knn_labels) if lbl == folder_name]
+        if len(indices) > _MAX_DOCS_PER_FOLDER:
+            # Remove the oldest for this folder (the first one found)
+            idx_to_remove = indices[0]
+            self._knn_embeddings = np.delete(self._knn_embeddings, idx_to_remove, axis=0)
+            self._knn_labels.pop(idx_to_remove)
+            
+        self._cache.save(self._folder_names, self._knn_embeddings, self._knn_labels)
+        logger.info("[CLASSIFY] Añadido vector a '%s' (total %d en k-NN)", folder_name, len(self._knn_labels))
         return True
+        
+    def remove_document_embedding(self, folder_name: str, document_embedding: np.ndarray) -> bool:
+        if self._knn_embeddings is None or folder_name not in self._knn_labels:
+            return False
+            
+        norm = np.linalg.norm(document_embedding)
+        if norm > 1e-9:
+            document_embedding = document_embedding / norm
+            
+        # Find the most similar embedding in this folder to remove it
+        folder_indices = [i for i, lbl in enumerate(self._knn_labels) if lbl == folder_name]
+        if not folder_indices:
+            return False
+            
+        folder_embs = self._knn_embeddings[folder_indices]
+        sims = document_embedding @ folder_embs.T
+        best_match_idx = int(np.argmax(sims))
+        best_match_sim = sims[best_match_idx]
+        
+        if best_match_sim > 0.95:  # Very close match
+            global_idx_to_remove = folder_indices[best_match_idx]
+            self._knn_embeddings = np.delete(self._knn_embeddings, global_idx_to_remove, axis=0)
+            self._knn_labels.pop(global_idx_to_remove)
+            self._cache.save(self._folder_names, self._knn_embeddings, self._knn_labels)
+            logger.info("[CLASSIFY] Vector removido de '%s'", folder_name)
+            return True
+            
+        return False
+        
+    def update_folder_centroid(self, folder_name: str, document_embedding: np.ndarray, remove: bool = False) -> bool:
+        """Backward compatibility con folder_monitor.py"""
+        if remove:
+            return self.remove_document_embedding(folder_name, document_embedding)
+        else:
+            return self.add_document_embedding(folder_name, document_embedding)
+
+    def _predict_knn(self, query_embs: np.ndarray) -> tuple[str, float, float, float, dict[str, float]]:
+        """
+        Calcula KNN con Max-Pooling sobre chunks.
+        query_embs: Shape (num_chunks, 384)
+        Retorna: (best_folder, best_score, gap, confidence, all_scores_raw)
+        """
+        if self._knn_embeddings is None or len(self._knn_labels) == 0:
+            return DEFAULT_FOLDER, 0.0, 0.0, 0.0, {}
+
+        # 1. Similitud de cada chunk contra toda la base de datos
+        # Shape: (num_chunks, num_db_vectors)
+        sim_matrix = query_embs @ self._knn_embeddings.T
+
+        # 2. Score máximo de chunk para cada vector en la DB (Max-Pooling)
+        # Shape: (num_db_vectors,)
+        db_scores = np.max(sim_matrix, axis=0)
+
+        # 3. K-Nearest Neighbors
+        k = min(_KNN_K, len(db_scores))
+        top_k_indices = np.argsort(db_scores)[::-1][:k]
+        
+        # Agrupar scores por carpeta usando los K mejores
+        folder_scores = defaultdict(list)
+        for idx in top_k_indices:
+            lbl = self._knn_labels[idx]
+            folder_scores[lbl].append(db_scores[idx])
+            
+        # El score final de cada carpeta es el promedio de sus scores en el top-K
+        # Si una carpeta tiene más votos, su score será más alto, o penalizamos las que no están?
+        # Mejor: usar el score máximo o ponderado de la carpeta en el top-K
+        final_scores = {folder: np.mean(scores) for folder, scores in folder_scores.items()}
+        
+        # Rellenar con 0 para el resto
+        for name in self._folder_names:
+            if name not in final_scores:
+                final_scores[name] = 0.0
+                
+        sorted_folders = sorted(final_scores.items(), key=lambda x: x[1], reverse=True)
+        best_folder, best_score = sorted_folders[0]
+        second_score = sorted_folders[1][1] if len(sorted_folders) > 1 else 0.0
+        gap = best_score - second_score
+        
+        # Softmax over all top max scores per folder for confidence
+        # Instead of just top-K, get the max score for EACH folder across the whole DB
+        all_folder_max = defaultdict(float)
+        for i, lbl in enumerate(self._knn_labels):
+            all_folder_max[lbl] = max(all_folder_max[lbl], db_scores[i])
+        for name in self._folder_names:
+            if name not in all_folder_max:
+                all_folder_max[name] = 0.0
+                
+        # Confidence is calculated using the global max per folder
+        global_sorted = sorted(all_folder_max.values(), reverse=True)
+        g_best = global_sorted[0] if global_sorted else 0.0
+        g_second = global_sorted[1] if len(global_sorted) > 1 else 0.0
+        g_gap = g_best - g_second
+        
+        confidence = self._compute_confidence(g_best, g_second, g_gap, all_folder_max)
+        
+        return (
+            best_folder,
+            float(best_score),
+            float(g_gap),
+            confidence,
+            {k: float(v) for k, v in all_folder_max.items()},
+        )
+
 
     def classify(
         self,
@@ -767,8 +910,6 @@ class DocumentClassifier:
             filename, len(content or ""), log_path,
         )
 
-        summary = self._extract_classification_summary(content) or ""
-
         if file_type in {".jpg", ".jpeg", ".png", ".gif", ".bmp"}:
             suggested = self._suggest_name(filename, content, "Fotos")
             result = ClassificationResult(
@@ -780,12 +921,13 @@ class DocumentClassifier:
                 gap=0.0,
                 threshold_used=self._threshold,
                 all_scores_raw={"Fotos": 1.0},
-                summary=summary,
+                summary="",
             )
             self._log.log(result, file_path=log_path)
             logger.info("[CLASSIFY] %s -> Fotos (imagen)", filename)
             return result
 
+        # Step 1: Keywords
         kw_folder, kw_suggested = self._classify_by_keywords(filename, content)
         if kw_folder != DEFAULT_FOLDER:
             conf = 0.5
@@ -801,11 +943,11 @@ class DocumentClassifier:
                 gap=0.0,
                 threshold_used=self._threshold,
                 all_scores_raw=scores_map,
-                summary=summary,
+                summary="",
             )
-            doc_emb = self.get_document_embedding(content, summary=summary)
+            doc_emb = self.get_document_embedding(content)
             if doc_emb is not None:
-                self.update_folder_centroid(kw_folder, doc_emb, remove=False)
+                self.add_document_embedding(kw_folder, doc_emb)
             self._log.log(result, file_path=log_path)
             logger.info(
                 "[CLASSIFY] %s -> %s (keyword) nombre='%s'",
@@ -813,71 +955,93 @@ class DocumentClassifier:
             )
             return result
 
-        if self._folder_embeddings is not None and content and content.strip():
-            doc_emb = self.get_document_embedding(content, summary=summary)
-            if doc_emb is not None:
-                doc_emb_2d = doc_emb[np.newaxis, :]
-            else:
-                doc_emb_2d = None
+        # Step 2: Two-Pass Embedding Classification
+        if self._knn_embeddings is not None and content and content.strip():
+            start = time.time()
+            dynamic_th = self._compute_dynamic_threshold()
+            
+            # --- FASE 1: Chunks Max-Pooling (Sin LLM) ---
+            chunk_embs = self.get_chunk_embeddings(content)
+            best_folder = DEFAULT_FOLDER
+            best_score = 0.0
+            gap = 0.0
+            confidence = 0.0
+            all_scores_raw = {}
+            method = "knn_chunks"
+            summary = ""
+            
+            if chunk_embs is not None:
+                best_folder, best_score, gap, confidence, all_scores_raw = self._predict_knn(chunk_embs)
+                
+            # Evaluamos si la Fase 1 es suficientemente segura.
+            # Además de score y gap, exigimos una confianza mínima para
+            # no comprometer la clasificación con poca evidencia.
+            gap_ok = gap >= self._min_gap
+            is_confident = (
+                best_score >= dynamic_th
+                and gap_ok
+                and confidence >= _MIN_CONFIDENCE
+            )
 
-            if doc_emb_2d is not None:
-                start = time.time()
-                sim_matrix = doc_emb_2d @ self._folder_embeddings.T
-                avg_sim = np.mean(sim_matrix, axis=0)
-                elapsed = (time.time() - start) * 1000
+            # --- FASE 2: LLM Summary (Si hay dudas) ---
+            if not is_confident and self._summary_llm is not None:
+                logger.info("[CLASSIFY] Fase 1 (%.3f conf=%.2f) insuficiente. Iniciando Fase 2 (LLM Summary)...", best_score, confidence)
+                summary = self._extract_classification_summary(content) or ""
+                if summary:
+                    summary_emb = self._engine.embed_single(summary)
+                    if summary_emb is not None:
+                        # Pasamos summary_emb como un solo "chunk"
+                        best_folder, best_score, gap, confidence, all_scores_raw = self._predict_knn(np.array([summary_emb]))
+                        method = "knn_summary"
+                        is_confident = (
+                            best_score >= dynamic_th
+                            and gap >= self._min_gap
+                            and confidence >= _MIN_CONFIDENCE
+                        )
 
-                best_idx = int(np.argmax(avg_sim))
-                best_score = float(avg_sim[best_idx])
-                best_folder = self._folder_names[best_idx]
+            elapsed = (time.time() - start) * 1000
 
-                sorted_idx = np.argsort(avg_sim)[::-1]
-                second_score = float(avg_sim[sorted_idx[1]]) if len(sorted_idx) > 1 else 0.0
-                gap = best_score - second_score
+            self._recent_scores.append(best_score)
+            
+            logger.info(
+                "[CLASSIFY] %s (%.0fms): mejor='%s' score=%.3f gap=%.3f "
+                "confianza=%.2f th=%.3f",
+                method, elapsed, best_folder, best_score, gap,
+                confidence, dynamic_th,
+            )
 
-                dynamic_th = self._compute_dynamic_threshold()
-                gap_ok = gap >= self._min_gap
-
-                all_scores_raw = {n: float(avg_sim[i]) for i, n in enumerate(self._folder_names)}
-                confidence = self._compute_confidence(best_score, second_score, avg_sim)
-
-                self._recent_scores.append(best_score)
-
-                method = "embedding+summary" if self._llm else "embedding"
+            if is_confident:
+                suggested = self._suggest_name(filename, content, best_folder)
+                result = ClassificationResult(
+                    folder=best_folder,
+                    suggested_name=suggested,
+                    confidence=confidence,
+                    method=method,
+                    scores={best_folder: best_score, "gap": gap},
+                    gap=gap,
+                    threshold_used=dynamic_th,
+                    all_scores_raw=all_scores_raw,
+                    summary=summary,
+                )
+                
+                # Para añadir a la BD k-NN, usamos el vector final (el resumen si lo hay, o el promedio de chunks)
+                doc_emb = self.get_document_embedding(content, summary=summary)
+                if doc_emb is not None:
+                    self.add_document_embedding(best_folder, doc_emb)
+                    
+                self._log.log(result, file_path=log_path)
                 logger.info(
-                    "[CLASSIFY] %s (%.0fms): mejor='%s' score=%.3f gap=%.3f "
-                    "confianza=%.2f th=%.3f | todas=%s",
-                    method, elapsed, best_folder, best_score, gap,
-                    confidence, dynamic_th,
-                    {n: f"{s:.3f}" for n, s in zip(self._folder_names, avg_sim)},
+                    "[CLASSIFY] %s -> %s (%s=%.3f gap=%.3f conf=%.2f) nombre='%s'",
+                    filename, best_folder, method, best_score, gap, confidence, suggested,
+                )
+                return result
+            else:
+                logger.info(
+                    "[CLASSIFY] Score %.3f (gap %.3f) insuficiente tras todas las fases (th=%.3f)",
+                    best_score, gap, dynamic_th,
                 )
 
-                if best_score >= dynamic_th and gap_ok:
-                    suggested = self._suggest_name(filename, content, best_folder)
-                    result = ClassificationResult(
-                        folder=best_folder,
-                        suggested_name=suggested,
-                        confidence=confidence,
-                        method=method,
-                        scores={best_folder: best_score, "second": second_score, "gap": gap},
-                        gap=gap,
-                        threshold_used=dynamic_th,
-                        all_scores_raw=all_scores_raw,
-                        summary=summary,
-                    )
-                    if doc_emb is not None:
-                        self.update_folder_centroid(best_folder, doc_emb, remove=False)
-                    self._log.log(result, file_path=log_path)
-                    logger.info(
-                        "[CLASSIFY] %s -> %s (%s=%.3f gap=%.3f conf=%.2f) nombre='%s'",
-                        filename, best_folder, method, best_score, gap, confidence, suggested,
-                    )
-                    return result
-                else:
-                    logger.info(
-                        "[CLASSIFY] Score %.3f (gap %.3f) insuficiente (th=%.3f)",
-                        best_score, gap, dynamic_th,
-                    )
-
+        # Fallback
         suggested = self._suggest_name(filename, content, DEFAULT_FOLDER)
         logger.info("[CLASSIFY] %s -> %s (fallback)", filename, DEFAULT_FOLDER)
         result = ClassificationResult(
@@ -889,7 +1053,7 @@ class DocumentClassifier:
             gap=0.0,
             threshold_used=self._threshold,
             all_scores_raw={},
-            summary=summary,
+            summary="",
         )
         self._log.log(result, file_path=log_path)
         return result

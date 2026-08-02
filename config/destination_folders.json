@@ -70,7 +70,8 @@
         "certificado de nacimiento del registro civil",
         "tramite administrativo del ayuntamiento",
         "pasaporte en tramite",
-        "documento de hacienda y tributos"
+        "documento de hacienda y tributos",
+        "**Document Type:** List of desired games **Main Topic:** Video Games **Key Entities:** * Elden Ring * Arc Raiders * Kingdom Come Deliverance II * Ghost of Yotei * Spider-Man 2 * Saros * Returnal * The Elder Scrolls: Oblivion Remastered * High On Life * Clair Obscur Expedition 33 * The Witcher 3 * Astro Bot"
       ]
     },
     {
@@ -88,7 +89,8 @@
         "plan de estudios con creditos ECTS",
         "PRÁCTICA 2: MONGODB (SESION 1)",
         "PROGRAMACIÓN DE CLIENTES Y SERVIDORES REST",
-        "Métricas de CLASIFICACIÓN Y REGRESIÓN"
+        "Métricas de CLASIFICACIÓN Y REGRESIÓN",
+        "**Document Type:** Apuntes (Notes) **Main Topic:** Inicializar base de datos Redis y operaciones básicas CRUD **Key Entities:** * REDIS (base de datos) * DB_HOSTNAME (variable de entorno) * redis_client (objeto cliente de Redis) * key (clave) * value (valor asociado a la clave) * data (datos recuperados de la base de datos) * clave (clave para operaciones CRUD) * nums (lista en Redis) * fruits (conjunto en Redis) * user:1 (clave hash en Redis) * Croacia, Bahamas (claves anidadas en mset)"
       ]
     }
   ]
